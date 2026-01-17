@@ -161,12 +161,13 @@ class TranslationCache:
                 )
             ''')
 
-    def _generate_hash(self, text: str, source_lang: str, target_lang: str, model: str = "") -> str:
-        key = f"{text}:{source_lang}:{target_lang}:{model}".encode('utf-8')
+    def _generate_hash(self, text: str, source_lang: str, target_lang: str, model: str = "", context_hash: str = "") -> str:
+        """Generate a unique hash including context to avoid cache collisions."""
+        key = f"{text}:{source_lang}:{target_lang}:{model}:{context_hash}".encode('utf-8')
         return hashlib.sha256(key).hexdigest()
     
-    def get_cached_translation(self, text: str, source_lang: str, target_lang: str, model: str = "") -> Optional[Dict[str, str]]:
-        hash_key = self._generate_hash(text, source_lang, target_lang, model)
+    def get_cached_translation(self, text: str, source_lang: str, target_lang: str, model: str = "", context_hash: str = "") -> Optional[Dict[str, str]]:
+        hash_key = self._generate_hash(text, source_lang, target_lang, model, context_hash)
         
         with sqlite3.connect(self.db_path) as conn:
             cur = conn.execute('''
@@ -190,8 +191,8 @@ class TranslationCache:
         return None
     
     def cache_translation(self, text: str, translated_text: str, machine_translation: str, 
-                         source_lang: str, target_lang: str, model: str = ""):
-        hash_key = self._generate_hash(text, source_lang, target_lang, model)
+                         source_lang: str, target_lang: str, model: str = "", context_hash: str = ""):
+        hash_key = self._generate_hash(text, source_lang, target_lang, model, context_hash)
         
         with sqlite3.connect(self.db_path) as conn:
             conn.execute('''
@@ -206,6 +207,12 @@ class TranslationCache:
             conn.execute(
                 f"DELETE FROM translation_cache WHERE last_used < datetime('now', '-{days} days')"
             )
+    
+    def clear_all(self):
+        """Clear all cached translations. Useful when fixing bugs or testing."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM translation_cache")
+            logger.app_logger.info("Translation cache cleared")
 
 # Initialize cache
 cache = TranslationCache()
@@ -317,6 +324,9 @@ def init_db():
 
 init_db()
 
+# Import for regex (needed for cleaning)
+import re
+
 class BookTranslator:
     def __init__(self, model_name: str = "llama3.3:70b-instruct-q2_K", chunk_size: int = 1000):
         self.model_name = model_name
@@ -333,47 +343,292 @@ class BookTranslator:
         # Note: Ollama should be running separately
         # Don't try to start it automatically
 
+    def _clean_translation_response(self, translation: str, previous_chunk: str) -> str:
+        """
+        Clean the LLM response to remove any accidentally repeated content 
+        from the previous chunk that the LLM might have included.
+        """
+        if not previous_chunk or not translation:
+            return translation.strip()
+        
+        translation = translation.strip()
+        
+        # Remove any leading content that matches the end of the previous chunk
+        # This handles cases where the LLM includes context from the previous paragraph
+        prev_lines = previous_chunk.strip().split('\n')
+        
+        # Check if translation starts with repeated content from previous chunk
+        for i in range(min(5, len(prev_lines))):  # Check last 5 lines of previous
+            check_text = '\n'.join(prev_lines[-(i+1):]).strip()
+            if len(check_text) > 50 and translation.startswith(check_text):
+                # Remove the duplicated content
+                translation = translation[len(check_text):].strip()
+                logger.translation_logger.info(f"Removed {len(check_text)} chars of duplicate prefix")
+                break
+        
+        # Also check for partial sentence duplicates at the start
+        if len(prev_lines) > 0:
+            last_prev_line = prev_lines[-1].strip()
+            if len(last_prev_line) > 30:
+                # Check if translation starts with a significant portion of the last line
+                for check_len in range(len(last_prev_line), 30, -10):
+                    check_segment = last_prev_line[-check_len:]
+                    if translation.startswith(check_segment):
+                        translation = translation[len(check_segment):].strip()
+                        logger.translation_logger.info(f"Removed {len(check_segment)} chars of partial duplicate")
+                        break
+        
+        # Remove common LLM prefixes/suffixes that shouldn't be in the output
+        unwanted_prefixes = [
+            "Here is the translation:",
+            "Here's the translation:",
+            "Translation:",
+            "Translated text:",
+            "**Translation:**",
+            "---",
+        ]
+        for prefix in unwanted_prefixes:
+            if translation.lower().startswith(prefix.lower()):
+                translation = translation[len(prefix):].strip()
+        
+        return translation.strip()
+    
+    def _is_likely_translated(self, original: str, translated: str, source_lang: str, target_lang: str) -> bool:
+        """
+        Check if the translated text is actually different from the original.
+        Returns True if translation appears to have occurred.
+        This is a conservative check - when in doubt, accept the translation.
+        """
+        if not translated or not original:
+            return False
+        
+        # If same language, can't easily verify
+        if source_lang == target_lang:
+            return True
+        
+        # If translated text is very short, accept it
+        if len(translated) < 50:
+            return True
+        
+        # Normalize texts for comparison
+        orig_normalized = ' '.join(original.lower().split())
+        trans_normalized = ' '.join(translated.lower().split())
+        
+        # If they're identical, translation definitely failed
+        if orig_normalized == trans_normalized:
+            return False
+        
+        # Calculate similarity ratio based on words
+        orig_words = set(orig_normalized.split())
+        trans_words = set(trans_normalized.split())
+        
+        if len(orig_words) == 0:
+            return True
+        
+        common_words = orig_words.intersection(trans_words)
+        similarity = len(common_words) / len(orig_words)
+        
+        # Only reject if similarity is very high (>75%) - names and numbers are often kept
+        if similarity > 0.75:
+            logger.translation_logger.warning(f"Very high similarity ({similarity:.2%}) suggests translation may have failed")
+            return False
+        
+        # Check for common source language patterns that shouldn't be in target
+        # For English to Spanish/other - only check if many markers present
+        if source_lang == 'en' and target_lang != 'en':
+            english_markers = [' the ', ' is ', ' are ', ' was ', ' were ', 
+                              ' said ', ' would ', ' could ', ' will ']
+            english_count = sum(1 for marker in english_markers if marker in translated.lower())
+            # Only fail if MANY English markers remain (more than 7)
+            if english_count > 7:
+                logger.translation_logger.warning(f"Found {english_count} English markers in 'translated' text")
+                return False
+        
+        return True
+    
+    def _remove_duplicate_paragraphs(self, text: str) -> str:
+        """
+        Post-process the final translation to remove any duplicate paragraphs
+        that may have been introduced during chunk translation.
+        """
+        paragraphs = text.split('\n\n')
+        seen_paragraphs = {}  # key -> first occurrence index
+        unique_paragraphs = []
+        
+        for idx, para in enumerate(paragraphs):
+            para_stripped = para.strip()
+            if not para_stripped:
+                continue
+            
+            # Create a normalized version for comparison (lowercase, no extra spaces)
+            normalized = ' '.join(para_stripped.lower().split())
+            
+            # Only check for duplicates if paragraph is long enough to be meaningful
+            # Short paragraphs (< 100 chars) might legitimately repeat
+            if len(normalized) < 100:
+                unique_paragraphs.append(para_stripped)
+                continue
+            
+            # Use first 150 chars as key to catch near-duplicates
+            # but require exact match for longer paragraphs
+            key = normalized[:150]
+            
+            if key not in seen_paragraphs:
+                seen_paragraphs[key] = idx
+                unique_paragraphs.append(para_stripped)
+            else:
+                # Only remove if it's a near-exact duplicate (not just similar start)
+                # Check if the full normalized text is very similar
+                prev_idx = seen_paragraphs[key]
+                if len(normalized) > 150:
+                    # For longer paragraphs, check if they're truly duplicates
+                    logger.translation_logger.info(f"Removed duplicate paragraph (idx {idx}, first seen at {prev_idx}): {para_stripped[:50]}...")
+                else:
+                    # For medium paragraphs with same key, still remove
+                    logger.translation_logger.info(f"Removed duplicate paragraph: {para_stripped[:50]}...")
+        
+        return '\n\n'.join(unique_paragraphs)
+
+    def _detect_untranslated_content(self, text: str, source_lang: str, target_lang: str) -> tuple:
+        """
+        Detect paragraphs that appear to be in the source language (untranslated).
+        Returns (cleaned_text, list_of_problematic_paragraphs)
+        """
+        if source_lang == target_lang:
+            return text, []
+        
+        paragraphs = text.split('\n\n')
+        cleaned_paragraphs = []
+        problematic = []
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            
+            # Skip short paragraphs or those that look like headers/names
+            if len(para) < 50:
+                cleaned_paragraphs.append(para)
+                continue
+            
+            # Check if paragraph appears to be in English (source language)
+            if source_lang == 'en':
+                english_markers = ['the ', ' is ', ' are ', ' was ', ' were ', ' have ', ' has ',
+                                  ' said ', ' would ', ' could ', ' should ', ' will ', ' been ',
+                                  ' with ', ' from ', ' that ', ' this ', ' they ', ' their ']
+                marker_count = sum(1 for marker in english_markers if marker.lower() in para.lower())
+                
+                # If many English markers, this paragraph might not be translated
+                words = para.split()
+                if len(words) > 10 and marker_count >= 4:
+                    ratio = marker_count / len(words)
+                    if ratio > 0.1:  # More than 10% are English markers
+                        logger.translation_logger.warning(f"Detected possibly untranslated paragraph: {para[:50]}...")
+                        problematic.append(para)
+                        # Mark it so user can see it
+                        cleaned_paragraphs.append(f"[⚠️ POSIBLE TEXTO SIN TRADUCIR] {para}")
+                        continue
+            
+            cleaned_paragraphs.append(para)
+        
+        return '\n\n'.join(cleaned_paragraphs), problematic
+
     def split_into_chunks(self, text: str) -> list:
-        """Split text into smaller chunks for translation."""
-        MAX_LENGTH = 4500  # Google Translate limit
+        """
+        Split text into smaller chunks for translation.
+        Ensures clean boundaries at paragraph level when possible,
+        and adds chunk markers to help detect overlap issues.
+        """
+        MAX_LENGTH = 4000  # Reduced from 4500 for safety margin
         paragraphs = text.split('\n\n')
         chunks = []
         current_chunk = []
         current_length = 0
         
         for paragraph in paragraphs:
-            if len(paragraph) + current_length > MAX_LENGTH:
+            paragraph = paragraph.strip()
+            if not paragraph:
+                continue
+                
+            para_length = len(paragraph)
+            
+            if para_length + current_length > MAX_LENGTH:
+                # Save current chunk if it has content
                 if current_chunk:
                     chunks.append('\n\n'.join(current_chunk))
                     current_chunk = []
                     current_length = 0
                 
-                if len(paragraph) > MAX_LENGTH:
-                    sentences = paragraph.split('. ')
+                # Handle very long paragraphs
+                if para_length > MAX_LENGTH:
+                    # Split by sentences more carefully
+                    # Use regex to split on sentence boundaries
+                    sentence_pattern = r'(?<=[.!?])\s+(?=[A-Z])'
+                    sentences = re.split(sentence_pattern, paragraph)
+                    
                     temp_chunk = []
                     temp_length = 0
                     
                     for sentence in sentences:
-                        if temp_length + len(sentence) > MAX_LENGTH:
+                        sentence = sentence.strip()
+                        if not sentence:
+                            continue
+                            
+                        sent_length = len(sentence)
+                        
+                        # If single sentence is too long, split it by commas
+                        if sent_length > MAX_LENGTH:
                             if temp_chunk:
-                                chunks.append('. '.join(temp_chunk) + '.')
+                                chunks.append(' '.join(temp_chunk))
                                 temp_chunk = []
                                 temp_length = 0
-                        temp_chunk.append(sentence)
-                        temp_length += len(sentence) + 2  # +2 for '. '
-                        
+                            
+                            # Split very long sentence by clause boundaries
+                            clauses = sentence.split(', ')
+                            clause_chunk = []
+                            clause_length = 0
+                            
+                            for clause in clauses:
+                                if clause_length + len(clause) > MAX_LENGTH:
+                                    if clause_chunk:
+                                        chunks.append(', '.join(clause_chunk))
+                                        clause_chunk = []
+                                        clause_length = 0
+                                clause_chunk.append(clause)
+                                clause_length += len(clause) + 2
+                            
+                            if clause_chunk:
+                                chunks.append(', '.join(clause_chunk))
+                        elif temp_length + sent_length > MAX_LENGTH:
+                            if temp_chunk:
+                                chunks.append(' '.join(temp_chunk))
+                                temp_chunk = []
+                                temp_length = 0
+                            temp_chunk.append(sentence)
+                            temp_length = sent_length
+                        else:
+                            temp_chunk.append(sentence)
+                            temp_length += sent_length + 1
+                    
                     if temp_chunk:
-                        chunks.append('. '.join(temp_chunk) + '.')
+                        chunks.append(' '.join(temp_chunk))
                 else:
+                    # Start new chunk with this paragraph
                     current_chunk.append(paragraph)
-                    current_length = len(paragraph)
+                    current_length = para_length
             else:
                 current_chunk.append(paragraph)
-                current_length += len(paragraph) + 2  # +2 for '\n\n'
-                
+                current_length += para_length + 2  # +2 for '\n\n'
+        
+        # Don't forget the last chunk
         if current_chunk:
             chunks.append('\n\n'.join(current_chunk))
-            
+        
+        # Log chunk info for debugging
+        logger.translation_logger.info(f"Split text into {len(chunks)} chunks")
+        for i, chunk in enumerate(chunks):
+            logger.translation_logger.info(f"  Chunk {i+1}: {len(chunk)} chars, starts with: {chunk[:50]}...")
+        
         return chunks
 
     def translate_text(self, text: str, source_lang: str, target_lang: str, translation_id: int, genre: str = 'unknown'):
@@ -401,15 +656,23 @@ class BookTranslator:
             logger.translation_logger.info("Stage 1: Primary LLM translation")
             for i, chunk in enumerate(chunks, 1):
                 try:
-                    # Check cache
-                    cached_result = cache.get_cached_translation(chunk, source_lang, target_lang, self.model_name + "_stage1")
+                    # Get previous context FIRST (needed for context-aware caching)
+                    previous_chunk = draft_translations[-1] if draft_translations else ""
+                    # Generate a hash of the context to differentiate cached entries
+                    context_hash = hashlib.sha256(previous_chunk.encode('utf-8')).hexdigest()[:16] if previous_chunk else ""
+                    
+                    # Check cache with context
+                    cached_result = cache.get_cached_translation(chunk, source_lang, target_lang, self.model_name + "_stage1", context_hash)
                     if cached_result:
                         draft_translation = cached_result['machine_translation']
-                        logger.translation_logger.info(f"Cache hit for stage 1 chunk {i}")
-                    else:
-                        # Get previous context
-                        previous_chunk = draft_translations[-1] if draft_translations else ""
-                        
+                        # Verify cached result is actually translated
+                        if draft_translation.startswith("[TRANSLATION_FAILED") or not self._is_likely_translated(chunk, draft_translation, source_lang, target_lang):
+                            logger.translation_logger.warning(f"Cached stage 1 chunk {i} appears untranslated, re-translating...")
+                            cached_result = None  # Force re-translation
+                        else:
+                            logger.translation_logger.info(f"Cache hit for stage 1 chunk {i}")
+                    
+                    if not cached_result:
                         logger.translation_logger.info(f"Stage 1 translating chunk {i}/{total_chunks}")
                         draft_translation = self.stage1_primary_translation(
                             text=chunk,
@@ -419,11 +682,21 @@ class BookTranslator:
                             genre=genre
                         )
                         
-                        # Cache stage 1 result
-                        cache.cache_translation(
-                            chunk, draft_translation, draft_translation,
-                            source_lang, target_lang, self.model_name + "_stage1"
-                        )
+                        # Check if translation actually failed
+                        if draft_translation.startswith("[TRANSLATION_FAILED"):
+                            error_msg = f"Chunk {i} translation failed after all retries"
+                            logger.translation_logger.error(error_msg)
+                            raise Exception(error_msg)
+                        
+                        # Clean the response to avoid duplicates
+                        draft_translation = self._clean_translation_response(draft_translation, previous_chunk)
+                        
+                        # Only cache if translation was successful
+                        if self._is_likely_translated(chunk, draft_translation, source_lang, target_lang):
+                            cache.cache_translation(
+                                chunk, draft_translation, draft_translation,
+                                source_lang, target_lang, self.model_name + "_stage1", context_hash
+                            )
                         time.sleep(0.5)
                     
                     draft_translations.append(draft_translation)
@@ -448,15 +721,23 @@ class BookTranslator:
             logger.translation_logger.info("Stage 2: Reflection and improvement")
             for i, (original_chunk, draft_chunk) in enumerate(zip(chunks, draft_translations), 1):
                 try:
-                    # Check cache
-                    cached_result = cache.get_cached_translation(original_chunk, source_lang, target_lang, self.model_name + "_stage2")
+                    # Get previous context FIRST (needed for context-aware caching)
+                    previous_final = final_translations[-1] if final_translations else ""
+                    # Generate a hash of the context to differentiate cached entries
+                    context_hash = hashlib.sha256(previous_final.encode('utf-8')).hexdigest()[:16] if previous_final else ""
+                    
+                    # Check cache with context
+                    cached_result = cache.get_cached_translation(original_chunk, source_lang, target_lang, self.model_name + "_stage2", context_hash)
                     if cached_result:
                         final_translation = cached_result['translated_text']
-                        logger.translation_logger.info(f"Cache hit for stage 2 chunk {i}")
-                    else:
-                        # Get previous context
-                        previous_final = final_translations[-1] if final_translations else ""
-                        
+                        # Verify cached result is actually translated
+                        if final_translation.startswith("[TRANSLATION_FAILED") or not self._is_likely_translated(original_chunk, final_translation, source_lang, target_lang):
+                            logger.translation_logger.warning(f"Cached stage 2 chunk {i} appears untranslated, re-translating...")
+                            cached_result = None  # Force re-translation
+                        else:
+                            logger.translation_logger.info(f"Cache hit for stage 2 chunk {i}")
+                    
+                    if not cached_result:
                         logger.translation_logger.info(f"Stage 2 improving chunk {i}/{total_chunks}")
                         final_translation = self.stage2_reflection_improvement(
                             original_text=original_chunk,
@@ -467,11 +748,27 @@ class BookTranslator:
                             genre=genre
                         )
                         
-                        # Cache stage 2 result
-                        cache.cache_translation(
-                            original_chunk, final_translation, draft_chunk,
-                            source_lang, target_lang, self.model_name + "_stage2"
-                        )
+                        # Check if translation failed
+                        if final_translation.startswith("[TRANSLATION_FAILED"):
+                            # Use draft translation as fallback if it's valid
+                            if draft_chunk and not draft_chunk.startswith("[TRANSLATION_FAILED") and \
+                               self._is_likely_translated(original_chunk, draft_chunk, source_lang, target_lang):
+                                logger.translation_logger.warning(f"Stage 2 chunk {i} failed, using draft")
+                                final_translation = draft_chunk
+                            else:
+                                error_msg = f"Chunk {i} translation completely failed"
+                                logger.translation_logger.error(error_msg)
+                                raise Exception(error_msg)
+                        
+                        # Clean the response to avoid duplicates
+                        final_translation = self._clean_translation_response(final_translation, previous_final)
+                        
+                        # Only cache if translation was successful
+                        if self._is_likely_translated(original_chunk, final_translation, source_lang, target_lang):
+                            cache.cache_translation(
+                                original_chunk, final_translation, draft_chunk,
+                                source_lang, target_lang, self.model_name + "_stage2", context_hash
+                            )
                         time.sleep(0.5)
                     
                     final_translations.append(final_translation)
@@ -508,27 +805,45 @@ class BookTranslator:
                     error_msg = f"Error in stage 2 chunk {i}: {str(e)}"
                     logger.translation_logger.error(error_msg)
                     logger.translation_logger.error(traceback.format_exc())
-                    # Fallback to draft
-                    final_translations.append(draft_chunk)
-                    raise Exception(error_msg)
+                    # Fallback to draft if it's valid, otherwise skip
+                    if draft_chunk and not draft_chunk.startswith("[TRANSLATION_FAILED") and \
+                       self._is_likely_translated(original_chunk, draft_chunk, source_lang, target_lang):
+                        final_translations.append(draft_chunk)
+                    else:
+                        logger.translation_logger.error(f"No valid translation for chunk {i}, marking as failed")
+                        final_translations.append(f"[⚠️ TRADUCCIÓN FALLIDA - Chunk {i}]")
                 
+            # Post-process: Remove any duplicate paragraphs in the final result
+            final_text = '\n\n'.join(final_translations)
+            final_text = self._remove_duplicate_paragraphs(final_text)
+            
+            # Detect and mark any untranslated content
+            final_text, untranslated = self._detect_untranslated_content(final_text, source_lang, target_lang)
+            if untranslated:
+                logger.translation_logger.warning(f"Found {len(untranslated)} possibly untranslated paragraphs")
+            
+            draft_text = '\n\n'.join(draft_translations)
+            
             # Mark translation as completed
             with sqlite3.connect(DB_PATH) as conn:
                 conn.execute('''
                     UPDATE translations 
                     SET status = 'completed',
                         progress = 100,
+                        translated_text = ?,
+                        machine_translation = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                ''', (translation_id,))
+                ''', (final_text, draft_text, translation_id))
                 
             success = True
             yield {
                 'progress': 100,
                 'original_text': '\n\n'.join(chunks),
-                'machine_translation': '\n\n'.join(draft_translations),
-                'translated_text': '\n\n'.join(final_translations),
-                'status': 'completed'
+                'machine_translation': draft_text,
+                'translated_text': final_text,
+                'status': 'completed',
+                'warnings': f'{len(untranslated)} possibly untranslated sections' if untranslated else None
             }
             
         except Exception as e:
@@ -565,23 +880,29 @@ class BookTranslator:
         source_name = lang_names.get(source_lang, source_lang)
         target_name = lang_names.get(target_lang, target_lang)
         
-        # Context section
-        context_section = f"\n\nPrevious translated paragraph:\n{previous_chunk}" if previous_chunk else ""
+        # Context section - show last 200 chars max to provide continuity without confusion
+        context_section = ""
+        if previous_chunk:
+            prev_snippet = previous_chunk[-300:] if len(previous_chunk) > 300 else previous_chunk
+            context_section = f"\n\n[For continuity only - the previous section ended with:]\n...{prev_snippet}"
         
-        # Build prompt according to todo.md
-        prompt = f"""You are a professional translator. Translate from {source_name} to {target_lang}.
+        # Build prompt with explicit instructions to avoid duplication
+        prompt = f"""You are a professional translator. Translate from {source_name} to {target_name}.
 
-CONTEXT:
-- Document type: {genre}
+CRITICAL INSTRUCTIONS:
+- Translate ONLY the text in "TEXT TO TRANSLATE" section below
+- DO NOT repeat or include any text from the "previous section" context
+- DO NOT add any prefix, suffix, or commentary
 - Preserve formatting (paragraphs, line breaks)
 - Adapt idioms and cultural references for target audience
 - Maintain tone and emotional coloring of original
+- Document type: {genre}
 {context_section}
 
 TEXT TO TRANSLATE:
 {text}
 
-Return ONLY the translation without comments."""
+IMPORTANT: Return ONLY the translation of the above text. Do not repeat previous content."""
 
         payload = {
             "model": self.model_name,
@@ -590,21 +911,42 @@ Return ONLY the translation without comments."""
             "options": {"temperature": 0.6}
         }
         
-        try:
-            response = self.session.post(self.api_url, json=payload, timeout=(30, 300))  # 5 min timeout
-            response.raise_for_status()
-            result = json.loads(response.text)
-            
-            if 'response' in result:
-                return result['response'].strip()
-            logger.api_logger.warning("No response field in Stage 1 result")
-            return text
-        except requests.exceptions.Timeout:
-            logger.api_logger.error(f"Stage 1 timeout after 300s - text too long or model too slow")
-            return text
-        except Exception as e:
-            logger.api_logger.error(f"Stage 1 error: {e}")
-            return text
+        # Retry logic for failed translations
+        max_retries = 3
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.session.post(self.api_url, json=payload, timeout=(30, 300))  # 5 min timeout
+                response.raise_for_status()
+                result = json.loads(response.text)
+                
+                if 'response' in result:
+                    translated = result['response'].strip()
+                    # Verify that the response is actually translated (not just the original)
+                    if self._is_likely_translated(text, translated, source_lang, target_lang):
+                        return translated
+                    else:
+                        logger.api_logger.warning(f"Stage 1 attempt {attempt+1}: Response seems untranslated, retrying...")
+                        last_error = "Response appears to be untranslated"
+                        continue
+                        
+                logger.api_logger.warning(f"No response field in Stage 1 result, attempt {attempt+1}")
+                last_error = "No response field"
+                
+            except requests.exceptions.Timeout:
+                logger.api_logger.error(f"Stage 1 timeout attempt {attempt+1}/{max_retries}")
+                last_error = "Timeout"
+                time.sleep(2)  # Wait before retry
+            except Exception as e:
+                logger.api_logger.error(f"Stage 1 error attempt {attempt+1}: {e}")
+                last_error = str(e)
+                time.sleep(1)
+        
+        # All retries failed - log error and mark as needing attention
+        logger.api_logger.error(f"Stage 1 FAILED after {max_retries} attempts: {last_error}")
+        # Return a marker that indicates translation failed (will be caught later)
+        return f"[TRANSLATION_FAILED: {text[:100]}...]"
     
     def stage2_reflection_improvement(self, original_text: str, draft_translation: str,
                                      source_lang: str, target_lang: str,
@@ -623,28 +965,35 @@ Return ONLY the translation without comments."""
         source_name = lang_names.get(source_lang, source_lang)
         target_name = lang_names.get(target_lang, target_lang)
         
-        # Context section
-        context_section = f"\n\nPrevious final paragraph:\n{previous_chunk}" if previous_chunk else ""
+        # Context section - show last 200 chars max for continuity reference
+        context_section = ""
+        if previous_chunk:
+            prev_snippet = previous_chunk[-300:] if len(previous_chunk) > 300 else previous_chunk
+            context_section = f"\n\n[For style continuity only - previous section ended:]\n...{prev_snippet}"
         
-        # Build prompt according to todo.md (combined stage 2+3 for efficiency)
-        prompt = f"""You are a translation editor. Review and improve this translation.
+        # Build prompt with explicit instructions to avoid duplication
+        prompt = f"""You are a translation editor. Improve this translation.
 
-ORIGINAL ({source_name}):
+CRITICAL INSTRUCTIONS:
+- Improve ONLY the "DRAFT TRANSLATION" below
+- DO NOT repeat or include text from the "previous section" context
+- DO NOT add any prefix, suffix, explanation, or commentary
+- Return ONLY the improved translation text
+
+ORIGINAL TEXT ({source_name}):
 {original_text}
 
-DRAFT TRANSLATION ({target_name}):
+DRAFT TRANSLATION TO IMPROVE ({target_name}):
 {draft_translation}
 {context_section}
 
-TASK:
-Critically evaluate the translation:
-
+EVALUATION CRITERIA:
 1. ACCURACY - Is all meaning preserved?
-2. NATURALNESS - Does it sound like a native speaker wrote it?
-3. STYLE & TONE - Is the register and emotional coloring maintained?
-4. CULTURAL ADAPTATION - Are idioms and references adapted?
+2. NATURALNESS - Does it sound native?
+3. STYLE & TONE - Is the register maintained?
+4. CULTURAL ADAPTATION - Are idioms adapted?
 
-Return ONLY the improved final translation without explanations."""
+IMPORTANT: Return ONLY the improved translation. Nothing else."""
 
         payload = {
             "model": self.model_name,
@@ -653,21 +1002,46 @@ Return ONLY the improved final translation without explanations."""
             "options": {"temperature": 0.4}  # Lower for precision
         }
         
-        try:
-            response = self.session.post(self.api_url, json=payload, timeout=(30, 300))  # 5 min timeout
-            response.raise_for_status()
-            result = json.loads(response.text)
-            
-            if 'response' in result:
-                return result['response'].strip()
-            logger.api_logger.warning("No response field in Stage 2 result, using draft")
-            return draft_translation
-        except requests.exceptions.Timeout:
-            logger.api_logger.error(f"Stage 2 timeout after 300s - using draft translation")
-            return draft_translation
-        except Exception as e:
-            logger.api_logger.error(f"Stage 2 error: {e}")
-            return draft_translation
+        # Retry logic for failed translations
+        max_retries = 3
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.session.post(self.api_url, json=payload, timeout=(30, 300))  # 5 min timeout
+                response.raise_for_status()
+                result = json.loads(response.text)
+                
+                if 'response' in result:
+                    translated = result['response'].strip()
+                    # Verify that the response is actually translated
+                    if self._is_likely_translated(original_text, translated, source_lang, target_lang):
+                        return translated
+                    else:
+                        logger.api_logger.warning(f"Stage 2 attempt {attempt+1}: Response seems untranslated, retrying...")
+                        last_error = "Response appears to be untranslated"
+                        continue
+                        
+                logger.api_logger.warning(f"No response field in Stage 2 result, attempt {attempt+1}")
+                last_error = "No response field"
+                
+            except requests.exceptions.Timeout:
+                logger.api_logger.error(f"Stage 2 timeout attempt {attempt+1}/{max_retries}")
+                last_error = "Timeout"
+                time.sleep(2)
+            except Exception as e:
+                logger.api_logger.error(f"Stage 2 error attempt {attempt+1}: {e}")
+                last_error = str(e)
+                time.sleep(1)
+        
+        # All retries failed - use draft translation if it looks translated, otherwise mark as failed
+        if draft_translation and not draft_translation.startswith("[TRANSLATION_FAILED"):
+            if self._is_likely_translated(original_text, draft_translation, source_lang, target_lang):
+                logger.api_logger.warning("Stage 2 failed, using draft translation as fallback")
+                return draft_translation
+        
+        logger.api_logger.error(f"Stage 2 FAILED after {max_retries} attempts: {last_error}")
+        return f"[TRANSLATION_FAILED: {original_text[:100]}...]"
     
     def get_available_models(self) -> List[str]:
         response = self.session.get(
@@ -989,6 +1363,13 @@ def get_failed_translations():
 def retry_failed_translation(translation_id):
     recovery.retry_translation(translation_id)
     return jsonify({'status': 'success'})
+
+@app.route('/clear-cache', methods=['POST'])
+@with_error_handling
+def clear_cache():
+    """Clear the translation cache. Useful after fixing bugs or for testing."""
+    cache.clear_all()
+    return jsonify({'status': 'success', 'message': 'Translation cache cleared'})
 
 @app.route('/metrics', methods=['GET'])
 def get_metrics():
