@@ -31,6 +31,7 @@ pip install --upgrade pip
 pip install pyinstaller
 pip install flaskwebgui
 pip install flask flask-cors requests psutil werkzeug
+pip install pystray Pillow
 
 echo [3/4] Creating SINGLE executable with PyInstaller...
 echo       (This may take several minutes...)

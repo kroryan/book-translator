@@ -24,15 +24,27 @@ flask_datas, flask_binaries, flask_hiddenimports = collect_all('flask')
 jinja2_datas, jinja2_binaries, jinja2_hiddenimports = collect_all('jinja2')
 werkzeug_datas, werkzeug_binaries, werkzeug_hiddenimports = collect_all('werkzeug')
 
+# Collect PIL/Pillow data
+try:
+    pil_datas, pil_binaries, pil_hiddenimports = collect_all('PIL')
+except Exception:
+    pil_datas, pil_binaries, pil_hiddenimports = [], [], []
+
+# Collect pystray data
+try:
+    pystray_datas, pystray_binaries, pystray_hiddenimports = collect_all('pystray')
+except Exception:
+    pystray_datas, pystray_binaries, pystray_hiddenimports = [], [], []
+
 # Main script analysis
 a = Analysis(
     ['app_desktop.py'],
     pathex=[spec_dir],
-    binaries=flask_binaries + jinja2_binaries + werkzeug_binaries,
+    binaries=flask_binaries + jinja2_binaries + werkzeug_binaries + pil_binaries + pystray_binaries,
     datas=[
         # Include static files (frontend)
         ('static', 'static'),
-    ] + flask_datas + jinja2_datas + werkzeug_datas,
+    ] + flask_datas + jinja2_datas + werkzeug_datas + pil_datas + pystray_datas,
     hiddenimports=[
         # Flask and dependencies
         'flask',
@@ -95,7 +107,9 @@ a = Analysis(
         'PIL',
         'PIL.Image',
         'PIL.ImageDraw',
-    ] + flask_hiddenimports + jinja2_hiddenimports + werkzeug_hiddenimports,
+        'PIL.ImageFilter',
+        'PIL.ImageFont',
+    ] + flask_hiddenimports + jinja2_hiddenimports + werkzeug_hiddenimports + pil_hiddenimports + pystray_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
