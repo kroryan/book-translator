@@ -13,6 +13,8 @@ import psutil
 import threading
 import signal
 import atexit
+import sys
+import re
 from collections import deque
 from dataclasses import dataclass, field
 from functools import wraps
@@ -22,6 +24,10 @@ from werkzeug.utils import secure_filename
 import zipfile
 import uuid
 from datetime import datetime as dt
+
+# ============== VERBOSE DEBUG MODE ==============
+VERBOSE_DEBUG = True  # Set to False to reduce console output
+# ================================================
 
 app = Flask(__name__)
 CORS(app)
@@ -37,6 +43,57 @@ CACHE_DB_PATH = 'cache.db'
 # Create necessary directories
 for folder in [UPLOAD_FOLDER, TRANSLATIONS_FOLDER, STATIC_FOLDER, LOG_FOLDER]:
     os.makedirs(folder, exist_ok=True)
+
+# ANSI Color codes for console output
+class Colors:
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    GRAY = '\033[90m'
+    BG_RED = '\033[41m'
+    BG_GREEN = '\033[42m'
+    BG_YELLOW = '\033[43m'
+    BG_BLUE = '\033[44m'
+
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with colors for console output"""
+    
+    LEVEL_COLORS = {
+        logging.DEBUG: Colors.GRAY,
+        logging.INFO: Colors.GREEN,
+        logging.WARNING: Colors.YELLOW,
+        logging.ERROR: Colors.RED,
+        logging.CRITICAL: Colors.BG_RED + Colors.WHITE,
+    }
+    
+    def format(self, record):
+        # Add color based on level
+        color = self.LEVEL_COLORS.get(record.levelno, Colors.RESET)
+        
+        # Format timestamp
+        timestamp = self.formatTime(record, '%H:%M:%S')
+        
+        # Get logger name suffix
+        name_map = {
+            'app_logger': f'{Colors.BLUE}[APP]{Colors.RESET}',
+            'translation_logger': f'{Colors.MAGENTA}[TRANS]{Colors.RESET}',
+            'api_logger': f'{Colors.CYAN}[API]{Colors.RESET}',
+        }
+        logger_tag = name_map.get(record.name, f'[{record.name}]')
+        
+        # Format level
+        level_name = f'{color}{record.levelname:8}{Colors.RESET}'
+        
+        # Format message
+        message = record.getMessage()
+        
+        return f'{Colors.GRAY}{timestamp}{Colors.RESET} {logger_tag} {level_name} {message}'
 
 # Logger setup
 class AppLogger:
@@ -58,24 +115,43 @@ class AppLogger:
             'api_logger',
             os.path.join(log_dir, 'api.log')
         )
+        
+        # Print startup banner
+        if VERBOSE_DEBUG:
+            self._print_banner()
+    
+    def _print_banner(self):
+        print(f"\n{Colors.CYAN}{'='*60}{Colors.RESET}")
+        print(f"{Colors.BOLD}{Colors.GREEN}  📚 BOOK TRANSLATOR - VERBOSE DEBUG MODE{Colors.RESET}")
+        print(f"{Colors.CYAN}{'='*60}{Colors.RESET}")
+        print(f"{Colors.YELLOW}  All operations will be logged to console{Colors.RESET}")
+        print(f"{Colors.CYAN}{'='*60}{Colors.RESET}\n")
 
     def _setup_logger(self, name, log_file):
         logger = logging.getLogger(name)
-        logger.setLevel(logging.INFO)
+        logger.setLevel(logging.DEBUG if VERBOSE_DEBUG else logging.INFO)
         
-        handler = RotatingFileHandler(
+        # File handler (always INFO level)
+        file_handler = RotatingFileHandler(
             log_file,
             maxBytes=10*1024*1024,
             backupCount=5,
             encoding='utf-8'
         )
-        
-        formatter = logging.Formatter(
+        file_handler.setLevel(logging.INFO)
+        file_formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
-        handler.setFormatter(formatter)
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
         
-        logger.addHandler(handler)
+        # Console handler (DEBUG level when verbose)
+        if VERBOSE_DEBUG:
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setLevel(logging.DEBUG)
+            console_handler.setFormatter(ColoredFormatter())
+            logger.addHandler(console_handler)
+        
         return logger
 
 # Initialize logger
@@ -169,6 +245,9 @@ class TranslationCache:
     def get_cached_translation(self, text: str, source_lang: str, target_lang: str, model: str = "", context_hash: str = "") -> Optional[Dict[str, str]]:
         hash_key = self._generate_hash(text, source_lang, target_lang, model, context_hash)
         
+        if VERBOSE_DEBUG:
+            logger.app_logger.debug(f"🔍 Cache lookup: hash={hash_key[:16]}... model={model} ctx={context_hash[:8] if context_hash else 'none'}")
+        
         with sqlite3.connect(self.db_path) as conn:
             cur = conn.execute('''
                 SELECT translated_text, machine_translation
@@ -178,6 +257,8 @@ class TranslationCache:
             
             result = cur.fetchone()
             if result:
+                if VERBOSE_DEBUG:
+                    logger.app_logger.debug(f"   💾 Cache HIT! ({len(result[0])} chars)")
                 conn.execute('''
                     UPDATE translation_cache
                     SET last_used = CURRENT_TIMESTAMP
@@ -188,11 +269,16 @@ class TranslationCache:
                     'machine_translation': result[1]
                 }
         
+        if VERBOSE_DEBUG:
+            logger.app_logger.debug(f"   ❌ Cache MISS")
         return None
     
     def cache_translation(self, text: str, translated_text: str, machine_translation: str, 
                          source_lang: str, target_lang: str, model: str = "", context_hash: str = ""):
         hash_key = self._generate_hash(text, source_lang, target_lang, model, context_hash)
+        
+        if VERBOSE_DEBUG:
+            logger.app_logger.debug(f"💾 Caching translation: hash={hash_key[:16]}... ({len(translated_text)} chars)")
         
         with sqlite3.connect(self.db_path) as conn:
             conn.execute('''
@@ -399,15 +485,24 @@ class BookTranslator:
         Returns True if translation appears to have occurred.
         This is a conservative check - when in doubt, accept the translation.
         """
+        if VERBOSE_DEBUG:
+            logger.translation_logger.debug(f"🔍 Validating translation: orig={len(original)} chars, trans={len(translated)} chars")
+        
         if not translated or not original:
+            if VERBOSE_DEBUG:
+                logger.translation_logger.debug(f"   ❌ Empty text - validation failed")
             return False
         
         # If same language, can't easily verify
         if source_lang == target_lang:
+            if VERBOSE_DEBUG:
+                logger.translation_logger.debug(f"   ✓ Same language pair - skipping validation")
             return True
         
         # If translated text is very short, accept it
         if len(translated) < 50:
+            if VERBOSE_DEBUG:
+                logger.translation_logger.debug(f"   ✓ Short text - accepting")
             return True
         
         # Normalize texts for comparison
@@ -416,6 +511,8 @@ class BookTranslator:
         
         # If they're identical, translation definitely failed
         if orig_normalized == trans_normalized:
+            if VERBOSE_DEBUG:
+                logger.translation_logger.debug(f"   ❌ Texts are identical - translation failed!")
             return False
         
         # Calculate similarity ratio based on words
@@ -428,9 +525,12 @@ class BookTranslator:
         common_words = orig_words.intersection(trans_words)
         similarity = len(common_words) / len(orig_words)
         
+        if VERBOSE_DEBUG:
+            logger.translation_logger.debug(f"   📊 Word similarity: {similarity:.1%} ({len(common_words)}/{len(orig_words)} common words)")
+        
         # Only reject if similarity is very high (>75%) - names and numbers are often kept
         if similarity > 0.75:
-            logger.translation_logger.warning(f"Very high similarity ({similarity:.2%}) suggests translation may have failed")
+            logger.translation_logger.warning(f"⚠️ Very high similarity ({similarity:.2%}) suggests translation may have failed")
             return False
         
         # Check for common source language patterns that shouldn't be in target
@@ -642,6 +742,18 @@ class BookTranslator:
             final_translations = []  # Stage 2 results
             self.terminology = TerminologyManager()
             
+            # VERBOSE DEBUG: Print translation start banner
+            if VERBOSE_DEBUG:
+                print(f"\n{Colors.CYAN}{'='*60}{Colors.RESET}")
+                print(f"{Colors.BOLD}{Colors.GREEN}📖 STARTING TRANSLATION #{translation_id}{Colors.RESET}")
+                print(f"{Colors.CYAN}{'='*60}{Colors.RESET}")
+                print(f"  📁 Total text: {len(text)} characters")
+                print(f"  🔢 Chunks: {total_chunks}")
+                print(f"  🌐 {source_lang} → {target_lang}")
+                print(f"  📚 Genre: {genre}")
+                print(f"  🤖 Model: {self.model_name}")
+                print(f"{Colors.CYAN}{'='*60}{Colors.RESET}\n")
+            
             logger.translation_logger.info(f"Starting translation {translation_id} with {total_chunks} chunks (genre: {genre})")
             
             # Update database with total chunks (2 stages)
@@ -654,8 +766,16 @@ class BookTranslator:
             
             # STAGE 1: Primary translation with context
             logger.translation_logger.info("Stage 1: Primary LLM translation")
+            if VERBOSE_DEBUG:
+                print(f"\n{Colors.YELLOW}▶ STAGE 1: Primary Translation{Colors.RESET}")
+                print(f"{'─'*40}")
+            
             for i, chunk in enumerate(chunks, 1):
                 try:
+                    if VERBOSE_DEBUG:
+                        print(f"\n{Colors.BLUE}📝 Chunk {i}/{total_chunks}{Colors.RESET} ({len(chunk)} chars)")
+                        print(f"   Preview: {chunk[:80].replace(chr(10), ' ')}...")
+                    
                     # Get previous context FIRST (needed for context-aware caching)
                     previous_chunk = draft_translations[-1] if draft_translations else ""
                     # Generate a hash of the context to differentiate cached entries
@@ -668,12 +788,19 @@ class BookTranslator:
                         # Verify cached result is actually translated
                         if draft_translation.startswith("[TRANSLATION_FAILED") or not self._is_likely_translated(chunk, draft_translation, source_lang, target_lang):
                             logger.translation_logger.warning(f"Cached stage 1 chunk {i} appears untranslated, re-translating...")
+                            if VERBOSE_DEBUG:
+                                print(f"   {Colors.YELLOW}⚠️ Cache invalid, re-translating...{Colors.RESET}")
                             cached_result = None  # Force re-translation
                         else:
                             logger.translation_logger.info(f"Cache hit for stage 1 chunk {i}")
+                            if VERBOSE_DEBUG:
+                                print(f"   {Colors.GREEN}💾 Cache HIT{Colors.RESET}")
                     
                     if not cached_result:
                         logger.translation_logger.info(f"Stage 1 translating chunk {i}/{total_chunks}")
+                        if VERBOSE_DEBUG:
+                            print(f"   {Colors.CYAN}🔄 Translating...{Colors.RESET}", end='', flush=True)
+                        
                         draft_translation = self.stage1_primary_translation(
                             text=chunk,
                             source_lang=source_lang,
@@ -682,14 +809,22 @@ class BookTranslator:
                             genre=genre
                         )
                         
+                        if VERBOSE_DEBUG:
+                            print(f" Done!")
+                        
                         # Check if translation actually failed
                         if draft_translation.startswith("[TRANSLATION_FAILED"):
                             error_msg = f"Chunk {i} translation failed after all retries"
                             logger.translation_logger.error(error_msg)
+                            if VERBOSE_DEBUG:
+                                print(f"   {Colors.RED}❌ FAILED: {error_msg}{Colors.RESET}")
                             raise Exception(error_msg)
                         
                         # Clean the response to avoid duplicates
                         draft_translation = self._clean_translation_response(draft_translation, previous_chunk)
+                        
+                        if VERBOSE_DEBUG:
+                            print(f"   {Colors.GREEN}✓ Result: {draft_translation[:80].replace(chr(10), ' ')}...{Colors.RESET}")
                         
                         # Only cache if translation was successful
                         if self._is_likely_translated(chunk, draft_translation, source_lang, target_lang):
@@ -719,8 +854,15 @@ class BookTranslator:
             
             # STAGE 2: Reflection and improvement
             logger.translation_logger.info("Stage 2: Reflection and improvement")
+            if VERBOSE_DEBUG:
+                print(f"\n{Colors.YELLOW}▶ STAGE 2: Reflection & Improvement{Colors.RESET}")
+                print(f"{'─'*40}")
+            
             for i, (original_chunk, draft_chunk) in enumerate(zip(chunks, draft_translations), 1):
                 try:
+                    if VERBOSE_DEBUG:
+                        print(f"\n{Colors.BLUE}🔧 Improving Chunk {i}/{total_chunks}{Colors.RESET}")
+                    
                     # Get previous context FIRST (needed for context-aware caching)
                     previous_final = final_translations[-1] if final_translations else ""
                     # Generate a hash of the context to differentiate cached entries
@@ -733,12 +875,19 @@ class BookTranslator:
                         # Verify cached result is actually translated
                         if final_translation.startswith("[TRANSLATION_FAILED") or not self._is_likely_translated(original_chunk, final_translation, source_lang, target_lang):
                             logger.translation_logger.warning(f"Cached stage 2 chunk {i} appears untranslated, re-translating...")
+                            if VERBOSE_DEBUG:
+                                print(f"   {Colors.YELLOW}⚠️ Cache invalid, re-improving...{Colors.RESET}")
                             cached_result = None  # Force re-translation
                         else:
                             logger.translation_logger.info(f"Cache hit for stage 2 chunk {i}")
+                            if VERBOSE_DEBUG:
+                                print(f"   {Colors.GREEN}💾 Cache HIT{Colors.RESET}")
                     
                     if not cached_result:
                         logger.translation_logger.info(f"Stage 2 improving chunk {i}/{total_chunks}")
+                        if VERBOSE_DEBUG:
+                            print(f"   {Colors.CYAN}🔄 Improving...{Colors.RESET}", end='', flush=True)
+                        
                         final_translation = self.stage2_reflection_improvement(
                             original_text=original_chunk,
                             draft_translation=draft_chunk,
@@ -747,6 +896,9 @@ class BookTranslator:
                             previous_chunk=previous_final,
                             genre=genre
                         )
+                        
+                        if VERBOSE_DEBUG:
+                            print(f" Done!")
                         
                         # Check if translation failed
                         if final_translation.startswith("[TRANSLATION_FAILED"):
@@ -815,12 +967,23 @@ class BookTranslator:
                 
             # Post-process: Remove any duplicate paragraphs in the final result
             final_text = '\n\n'.join(final_translations)
+            
+            if VERBOSE_DEBUG:
+                print(f"\n{Colors.YELLOW}▶ POST-PROCESSING{Colors.RESET}")
+                print(f"{'─'*40}")
+                print(f"   Removing duplicate paragraphs...")
+            
             final_text = self._remove_duplicate_paragraphs(final_text)
             
             # Detect and mark any untranslated content
+            if VERBOSE_DEBUG:
+                print(f"   Detecting untranslated content...")
+            
             final_text, untranslated = self._detect_untranslated_content(final_text, source_lang, target_lang)
             if untranslated:
                 logger.translation_logger.warning(f"Found {len(untranslated)} possibly untranslated paragraphs")
+                if VERBOSE_DEBUG:
+                    print(f"   {Colors.YELLOW}⚠️ Found {len(untranslated)} possibly untranslated paragraphs{Colors.RESET}")
             
             draft_text = '\n\n'.join(draft_translations)
             
@@ -837,6 +1000,20 @@ class BookTranslator:
                 ''', (final_text, draft_text, translation_id))
                 
             success = True
+            
+            # VERBOSE DEBUG: Print completion banner
+            if VERBOSE_DEBUG:
+                elapsed = time.time() - start_time
+                print(f"\n{Colors.GREEN}{'='*60}{Colors.RESET}")
+                print(f"{Colors.BOLD}{Colors.GREEN}✅ TRANSLATION COMPLETED!{Colors.RESET}")
+                print(f"{Colors.GREEN}{'='*60}{Colors.RESET}")
+                print(f"  ⏱️  Time: {elapsed:.1f} seconds")
+                print(f"  📄 Final text: {len(final_text)} characters")
+                print(f"  🔢 Chunks processed: {total_chunks}")
+                if untranslated:
+                    print(f"  {Colors.YELLOW}⚠️  Warnings: {len(untranslated)} possibly untranslated sections{Colors.RESET}")
+                print(f"{Colors.GREEN}{'='*60}{Colors.RESET}\n")
+            
             yield {
                 'progress': 100,
                 'original_text': '\n\n'.join(chunks),
@@ -850,6 +1027,14 @@ class BookTranslator:
             error_msg = f"Translation failed: {str(e)}"
             logger.translation_logger.error(error_msg)
             logger.translation_logger.error(traceback.format_exc())
+            
+            # VERBOSE DEBUG: Print error banner
+            if VERBOSE_DEBUG:
+                print(f"\n{Colors.RED}{'='*60}{Colors.RESET}")
+                print(f"{Colors.BOLD}{Colors.RED}❌ TRANSLATION FAILED!{Colors.RESET}")
+                print(f"{Colors.RED}{'='*60}{Colors.RESET}")
+                print(f"  Error: {str(e)}")
+                print(f"{Colors.RED}{'='*60}{Colors.RESET}\n")
             
             with sqlite3.connect(DB_PATH) as conn:
                 conn.execute('''
@@ -904,6 +1089,18 @@ TEXT TO TRANSLATE:
 
 IMPORTANT: Return ONLY the translation of the above text. Do not repeat previous content."""
 
+        # VERBOSE DEBUG: Log full prompt
+        if VERBOSE_DEBUG:
+            logger.api_logger.debug(f"\n{'='*50}")
+            logger.api_logger.debug(f"📝 STAGE 1 PROMPT ({len(prompt)} chars):")
+            logger.api_logger.debug(f"{'='*50}")
+            # Show first 500 and last 300 chars of prompt
+            if len(prompt) > 900:
+                logger.api_logger.debug(f"{prompt[:500]}\n...\n[{len(prompt)-800} chars omitted]\n...\n{prompt[-300:]}")
+            else:
+                logger.api_logger.debug(prompt)
+            logger.api_logger.debug(f"{'='*50}")
+
         payload = {
             "model": self.model_name,
             "prompt": prompt,
@@ -917,17 +1114,28 @@ IMPORTANT: Return ONLY the translation of the above text. Do not repeat previous
         
         for attempt in range(max_retries):
             try:
+                logger.api_logger.debug(f"🚀 Stage 1 - Sending request to {self.api_url} (attempt {attempt+1}/{max_retries})")
+                logger.api_logger.debug(f"   Model: {self.model_name}, Temperature: 0.6")
+                
                 response = self.session.post(self.api_url, json=payload, timeout=(30, 300))  # 5 min timeout
                 response.raise_for_status()
                 result = json.loads(response.text)
                 
                 if 'response' in result:
                     translated = result['response'].strip()
+                    
+                    # VERBOSE DEBUG: Log translation result
+                    if VERBOSE_DEBUG:
+                        logger.api_logger.debug(f"✅ Stage 1 - Received response ({len(translated)} chars)")
+                        logger.api_logger.debug(f"   First 200 chars: {translated[:200]}...")
+                    
                     # Verify that the response is actually translated (not just the original)
                     if self._is_likely_translated(text, translated, source_lang, target_lang):
+                        logger.api_logger.info(f"✅ Stage 1 SUCCESS - Translation validated")
                         return translated
                     else:
-                        logger.api_logger.warning(f"Stage 1 attempt {attempt+1}: Response seems untranslated, retrying...")
+                        logger.api_logger.warning(f"⚠️ Stage 1 attempt {attempt+1}: Response seems untranslated, retrying...")
+                        logger.api_logger.debug(f"   Rejected translation: {translated[:100]}...")
                         last_error = "Response appears to be untranslated"
                         continue
                         
@@ -995,6 +1203,18 @@ EVALUATION CRITERIA:
 
 IMPORTANT: Return ONLY the improved translation. Nothing else."""
 
+        # VERBOSE DEBUG: Log full prompt
+        if VERBOSE_DEBUG:
+            logger.api_logger.debug(f"\n{'='*50}")
+            logger.api_logger.debug(f"📝 STAGE 2 PROMPT ({len(prompt)} chars):")
+            logger.api_logger.debug(f"{'='*50}")
+            # Show first 500 and last 300 chars of prompt
+            if len(prompt) > 900:
+                logger.api_logger.debug(f"{prompt[:500]}\n...\n[{len(prompt)-800} chars omitted]\n...\n{prompt[-300:]}")
+            else:
+                logger.api_logger.debug(prompt)
+            logger.api_logger.debug(f"{'='*50}")
+
         payload = {
             "model": self.model_name,
             "prompt": prompt,
@@ -1008,17 +1228,28 @@ IMPORTANT: Return ONLY the improved translation. Nothing else."""
         
         for attempt in range(max_retries):
             try:
+                logger.api_logger.debug(f"🚀 Stage 2 - Sending request to {self.api_url} (attempt {attempt+1}/{max_retries})")
+                logger.api_logger.debug(f"   Model: {self.model_name}, Temperature: 0.4")
+                
                 response = self.session.post(self.api_url, json=payload, timeout=(30, 300))  # 5 min timeout
                 response.raise_for_status()
                 result = json.loads(response.text)
                 
                 if 'response' in result:
                     translated = result['response'].strip()
+                    
+                    # VERBOSE DEBUG: Log translation result
+                    if VERBOSE_DEBUG:
+                        logger.api_logger.debug(f"✅ Stage 2 - Received response ({len(translated)} chars)")
+                        logger.api_logger.debug(f"   First 200 chars: {translated[:200]}...")
+                    
                     # Verify that the response is actually translated
                     if self._is_likely_translated(original_text, translated, source_lang, target_lang):
+                        logger.api_logger.info(f"✅ Stage 2 SUCCESS - Translation validated")
                         return translated
                     else:
-                        logger.api_logger.warning(f"Stage 2 attempt {attempt+1}: Response seems untranslated, retrying...")
+                        logger.api_logger.warning(f"⚠️ Stage 2 attempt {attempt+1}: Response seems untranslated, retrying...")
+                        logger.api_logger.debug(f"   Rejected translation: {translated[:100]}...")
                         last_error = "Response appears to be untranslated"
                         continue
                         
