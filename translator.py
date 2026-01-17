@@ -109,6 +109,359 @@ def debug_print(message, level='INFO', source='DEBUG'):
     print(message)
 
 # ==================================================
+# COMPREHENSIVE LANGUAGE MARKERS FOR DETECTION
+# ==================================================
+# These markers are used to detect if text is in a specific language.
+# For Latin-alphabet languages: common words with spaces around them
+# For Asian languages: common characters/particles (no spaces needed)
+
+LANGUAGE_MARKERS = {
+    'en': {
+        'type': 'word',  # Uses space-separated words
+        'markers': [
+            # Articles & Determiners
+            ' the ', ' a ', ' an ', ' this ', ' that ', ' these ', ' those ',
+            ' some ', ' any ', ' no ', ' every ', ' each ', ' all ', ' both ',
+            # Pronouns
+            ' i ', ' you ', ' he ', ' she ', ' it ', ' we ', ' they ',
+            ' me ', ' him ', ' her ', ' us ', ' them ', ' my ', ' your ',
+            ' his ', ' its ', ' our ', ' their ', ' mine ', ' yours ',
+            ' who ', ' whom ', ' whose ', ' which ', ' what ',
+            # Common verbs (conjugated)
+            ' is ', ' are ', ' was ', ' were ', ' be ', ' been ', ' being ',
+            ' have ', ' has ', ' had ', ' having ', ' do ', ' does ', ' did ',
+            ' will ', ' would ', ' shall ', ' should ', ' can ', ' could ',
+            ' may ', ' might ', ' must ', ' need ', ' dare ', ' ought ',
+            ' said ', ' says ', ' told ', ' asked ', ' answered ', ' replied ',
+            ' went ', ' came ', ' got ', ' made ', ' took ', ' gave ', ' knew ',
+            ' thought ', ' felt ', ' saw ', ' heard ', ' seemed ', ' looked ',
+            # Prepositions
+            ' in ', ' on ', ' at ', ' by ', ' for ', ' with ', ' about ',
+            ' against ', ' between ', ' into ', ' through ', ' during ',
+            ' before ', ' after ', ' above ', ' below ', ' from ', ' up ',
+            ' down ', ' out ', ' off ', ' over ', ' under ', ' again ',
+            # Conjunctions
+            ' and ', ' but ', ' or ', ' nor ', ' so ', ' yet ', ' because ',
+            ' although ', ' while ', ' if ', ' unless ', ' until ', ' when ',
+            ' where ', ' whether ', ' however ', ' therefore ', ' moreover ',
+            # Adverbs
+            ' not ', ' very ', ' really ', ' just ', ' also ', ' only ',
+            ' even ', ' still ', ' already ', ' always ', ' never ', ' often ',
+            ' sometimes ', ' usually ', ' here ', ' there ', ' now ', ' then ',
+            # Common phrases/patterns
+            ' of the ', ' to the ', ' in the ', ' on the ', ' at the ',
+            ' and the ', ' for the ', ' with the ', ' from the ',
+            ' there is ', ' there are ', ' there was ', ' there were ',
+        ],
+        'min_markers': 3,  # Minimum markers to consider text as this language
+    },
+    'es': {
+        'type': 'word',
+        'markers': [
+            # Articles
+            ' el ', ' la ', ' los ', ' las ', ' un ', ' una ', ' unos ', ' unas ',
+            # Prepositions
+            ' de ', ' del ', ' al ', ' en ', ' con ', ' por ', ' para ', ' sin ',
+            ' sobre ', ' entre ', ' hacia ', ' desde ', ' hasta ', ' según ',
+            ' durante ', ' mediante ', ' contra ', ' ante ', ' bajo ',
+            # Pronouns
+            ' yo ', ' tú ', ' él ', ' ella ', ' usted ', ' nosotros ', ' ellos ',
+            ' ellas ', ' ustedes ', ' me ', ' te ', ' le ', ' nos ', ' les ',
+            ' lo ', ' se ', ' mi ', ' tu ', ' su ', ' mis ', ' tus ', ' sus ',
+            ' que ', ' quien ', ' cual ', ' cuyo ', ' donde ', ' como ', ' cuando ',
+            # Common verbs
+            ' es ', ' son ', ' era ', ' eran ', ' fue ', ' fueron ', ' ser ', ' sido ',
+            ' está ', ' están ', ' estaba ', ' estuvo ', ' estar ', ' estado ',
+            ' ha ', ' han ', ' había ', ' hubo ', ' haber ', ' habido ',
+            ' tiene ', ' tienen ', ' tenía ', ' tuvo ', ' tener ', ' tenido ',
+            ' hace ', ' hacen ', ' hacía ', ' hizo ', ' hacer ', ' hecho ',
+            ' puede ', ' pueden ', ' podía ', ' pudo ', ' poder ', ' podido ',
+            ' quiere ', ' quieren ', ' quería ', ' quiso ', ' querer ',
+            ' dice ', ' dicen ', ' decía ', ' dijo ', ' decir ', ' dicho ',
+            ' sabe ', ' saben ', ' sabía ', ' supo ', ' saber ', ' sabido ',
+            ' ve ', ' ven ', ' veía ', ' vio ', ' ver ', ' visto ',
+            ' va ', ' van ', ' iba ', ' fue ', ' ir ', ' ido ',
+            # Conjunctions
+            ' y ', ' e ', ' o ', ' u ', ' pero ', ' sino ', ' aunque ', ' porque ',
+            ' pues ', ' como ', ' si ', ' cuando ', ' donde ', ' mientras ',
+            # Adverbs
+            ' no ', ' sí ', ' muy ', ' más ', ' menos ', ' bien ', ' mal ',
+            ' ya ', ' aún ', ' todavía ', ' siempre ', ' nunca ', ' también ',
+            ' solo ', ' además ', ' aquí ', ' allí ', ' ahora ', ' entonces ',
+            # Common patterns
+            ' de la ', ' de los ', ' de las ', ' en el ', ' en la ',
+            ' a la ', ' a los ', ' por el ', ' por la ', ' con el ', ' con la ',
+        ],
+        'min_markers': 3,
+    },
+    'fr': {
+        'type': 'word',
+        'markers': [
+            # Articles
+            ' le ', ' la ', ' les ', ' un ', ' une ', ' des ', ' du ', ' de la ',
+            " l'", " d'", " n'", " s'", " c'", " j'", " m'", " t'", " qu'",
+            # Prepositions
+            ' de ', ' à ', ' en ', ' dans ', ' sur ', ' sous ', ' avec ', ' sans ',
+            ' pour ', ' par ', ' chez ', ' vers ', ' entre ', ' contre ',
+            # Pronouns
+            ' je ', ' tu ', ' il ', ' elle ', ' on ', ' nous ', ' vous ', ' ils ', ' elles ',
+            ' me ', ' te ', ' se ', ' lui ', ' leur ', ' moi ', ' toi ', ' soi ',
+            ' ce ', ' cet ', ' cette ', ' ces ', ' qui ', ' que ', ' quoi ', ' dont ', ' où ',
+            # Common verbs
+            ' est ', ' sont ', ' était ', ' étaient ', ' fut ', ' être ', ' été ',
+            ' a ', ' ont ', ' avait ', ' avaient ', ' eut ', ' avoir ', ' eu ',
+            ' fait ', ' font ', ' faisait ', ' fit ', ' faire ',
+            ' dit ', ' disent ', ' disait ', ' dire ',
+            ' peut ', ' peuvent ', ' pouvait ', ' pouvoir ', ' pu ',
+            ' veut ', ' veulent ', ' voulait ', ' vouloir ', ' voulu ',
+            ' sait ', ' savent ', ' savait ', ' savoir ', ' su ',
+            ' voit ', ' voient ', ' voyait ', ' voir ', ' vu ',
+            ' va ', ' vont ', ' allait ', ' aller ', ' allé ',
+            # Conjunctions
+            ' et ', ' ou ', ' mais ', ' donc ', ' car ', ' ni ', ' or ',
+            ' si ', ' que ', ' quand ', ' comme ', ' parce ', ' puisque ',
+            # Adverbs/Negation
+            ' ne ', ' pas ', ' plus ', ' jamais ', ' rien ', ' personne ',
+            ' très ', ' bien ', ' mal ', ' peu ', ' beaucoup ', ' trop ',
+            ' aussi ', ' encore ', ' toujours ', ' déjà ', ' ici ', ' là ',
+            # Common patterns
+            " c'est ", " c'était ", " il y a ", " il y avait ",
+        ],
+        'min_markers': 3,
+    },
+    'de': {
+        'type': 'word',
+        'markers': [
+            # Articles
+            ' der ', ' die ', ' das ', ' den ', ' dem ', ' des ',
+            ' ein ', ' eine ', ' einen ', ' einem ', ' einer ', ' eines ',
+            # Prepositions
+            ' in ', ' an ', ' auf ', ' für ', ' mit ', ' von ', ' zu ', ' bei ',
+            ' nach ', ' über ', ' unter ', ' vor ', ' hinter ', ' neben ',
+            ' zwischen ', ' durch ', ' gegen ', ' ohne ', ' um ', ' aus ',
+            # Pronouns
+            ' ich ', ' du ', ' er ', ' sie ', ' es ', ' wir ', ' ihr ',
+            ' mich ', ' dich ', ' sich ', ' uns ', ' euch ', ' ihm ', ' ihn ',
+            ' mir ', ' dir ', ' mein ', ' dein ', ' sein ', ' unser ', ' euer ',
+            ' wer ', ' was ', ' welch ', ' dessen ', ' deren ',
+            # Common verbs
+            ' ist ', ' sind ', ' war ', ' waren ', ' sein ', ' gewesen ',
+            ' hat ', ' haben ', ' hatte ', ' hatten ', ' gehabt ',
+            ' wird ', ' werden ', ' wurde ', ' wurden ', ' geworden ',
+            ' kann ', ' können ', ' konnte ', ' konnten ', ' gekonnt ',
+            ' muss ', ' müssen ', ' musste ', ' gemusst ',
+            ' will ', ' wollen ', ' wollte ', ' gewollt ',
+            ' soll ', ' sollen ', ' sollte ', ' gesollt ',
+            ' sagt ', ' sagen ', ' sagte ', ' gesagt ',
+            ' geht ', ' gehen ', ' ging ', ' gegangen ',
+            ' kommt ', ' kommen ', ' kam ', ' gekommen ',
+            ' macht ', ' machen ', ' machte ', ' gemacht ',
+            # Conjunctions
+            ' und ', ' oder ', ' aber ', ' denn ', ' weil ', ' dass ', ' daß ',
+            ' wenn ', ' ob ', ' als ', ' während ', ' obwohl ', ' damit ',
+            # Adverbs
+            ' nicht ', ' auch ', ' nur ', ' noch ', ' schon ', ' sehr ',
+            ' immer ', ' nie ', ' oft ', ' hier ', ' dort ', ' jetzt ', ' dann ',
+        ],
+        'min_markers': 3,
+    },
+    'it': {
+        'type': 'word',
+        'markers': [
+            # Articles
+            ' il ', ' lo ', ' la ', ' i ', ' gli ', ' le ',
+            ' un ', ' uno ', ' una ', " un'", ' del ', ' dello ', ' della ',
+            ' dei ', ' degli ', ' delle ', ' al ', ' allo ', ' alla ',
+            " l'", " d'", " c'", " n'", " s'",
+            # Prepositions
+            ' di ', ' a ', ' da ', ' in ', ' con ', ' su ', ' per ', ' tra ', ' fra ',
+            ' sopra ', ' sotto ', ' dentro ', ' fuori ', ' verso ', ' contro ',
+            # Pronouns
+            ' io ', ' tu ', ' lui ', ' lei ', ' noi ', ' voi ', ' loro ',
+            ' mi ', ' ti ', ' ci ', ' vi ', ' si ', ' lo ', ' la ', ' li ',
+            ' me ', ' te ', ' sé ', ' che ', ' chi ', ' cui ', ' quale ',
+            # Common verbs
+            ' è ', ' sono ', ' era ', ' erano ', ' fu ', ' furono ', ' essere ', ' stato ',
+            ' ha ', ' hanno ', ' aveva ', ' avevano ', ' ebbe ', ' avere ', ' avuto ',
+            ' fa ', ' fanno ', ' faceva ', ' fece ', ' fare ', ' fatto ',
+            ' dice ', ' dicono ', ' diceva ', ' disse ', ' dire ', ' detto ',
+            ' può ', ' possono ', ' poteva ', ' potere ', ' potuto ',
+            ' vuole ', ' vogliono ', ' voleva ', ' volere ', ' voluto ',
+            ' sa ', ' sanno ', ' sapeva ', ' sapere ', ' saputo ',
+            ' vede ', ' vedono ', ' vedeva ', ' vedere ', ' visto ',
+            ' va ', ' vanno ', ' andava ', ' andare ', ' andato ',
+            # Conjunctions
+            ' e ', ' o ', ' ma ', ' però ', ' perché ', ' poiché ', ' quando ',
+            ' se ', ' come ', ' mentre ', ' sebbene ', ' affinché ',
+            # Adverbs
+            ' non ', ' sì ', ' molto ', ' poco ', ' più ', ' meno ', ' bene ', ' male ',
+            ' già ', ' ancora ', ' sempre ', ' mai ', ' anche ', ' solo ',
+            ' qui ', ' qua ', ' lì ', ' là ', ' ora ', ' adesso ', ' poi ', ' allora ',
+        ],
+        'min_markers': 3,
+    },
+    'pt': {
+        'type': 'word',
+        'markers': [
+            # Articles
+            ' o ', ' a ', ' os ', ' as ', ' um ', ' uma ', ' uns ', ' umas ',
+            ' do ', ' da ', ' dos ', ' das ', ' no ', ' na ', ' nos ', ' nas ',
+            ' ao ', ' à ', ' aos ', ' às ', ' pelo ', ' pela ', ' pelos ', ' pelas ',
+            # Prepositions
+            ' de ', ' em ', ' com ', ' por ', ' para ', ' sem ', ' sob ', ' sobre ',
+            ' entre ', ' contra ', ' desde ', ' até ', ' após ', ' durante ',
+            # Pronouns
+            ' eu ', ' tu ', ' ele ', ' ela ', ' você ', ' nós ', ' eles ', ' elas ', ' vocês ',
+            ' me ', ' te ', ' se ', ' lhe ', ' nos ', ' vos ', ' lhes ',
+            ' meu ', ' minha ', ' teu ', ' tua ', ' seu ', ' sua ', ' nosso ', ' nossa ',
+            ' que ', ' quem ', ' qual ', ' cujo ', ' onde ', ' como ', ' quando ',
+            # Common verbs
+            ' é ', ' são ', ' era ', ' eram ', ' foi ', ' foram ', ' ser ', ' sido ',
+            ' está ', ' estão ', ' estava ', ' esteve ', ' estar ', ' estado ',
+            ' tem ', ' têm ', ' tinha ', ' teve ', ' ter ', ' tido ',
+            ' há ', ' havia ', ' houve ', ' haver ', ' havido ',
+            ' faz ', ' fazem ', ' fazia ', ' fez ', ' fazer ', ' feito ',
+            ' pode ', ' podem ', ' podia ', ' pôde ', ' poder ', ' podido ',
+            ' quer ', ' querem ', ' queria ', ' quis ', ' querer ', ' querido ',
+            ' diz ', ' dizem ', ' dizia ', ' disse ', ' dizer ', ' dito ',
+            ' sabe ', ' sabem ', ' sabia ', ' soube ', ' saber ', ' sabido ',
+            ' vê ', ' veem ', ' via ', ' viu ', ' ver ', ' visto ',
+            ' vai ', ' vão ', ' ia ', ' foi ', ' ir ', ' ido ',
+            # Conjunctions
+            ' e ', ' ou ', ' mas ', ' porém ', ' contudo ', ' todavia ', ' porque ',
+            ' pois ', ' como ', ' se ', ' quando ', ' enquanto ', ' embora ',
+            # Adverbs
+            ' não ', ' sim ', ' muito ', ' pouco ', ' mais ', ' menos ', ' bem ', ' mal ',
+            ' já ', ' ainda ', ' sempre ', ' nunca ', ' também ', ' só ', ' apenas ',
+            ' aqui ', ' ali ', ' lá ', ' agora ', ' então ', ' depois ', ' antes ',
+        ],
+        'min_markers': 3,
+    },
+    'ru': {
+        'type': 'word',
+        'markers': [
+            # Prepositions and particles
+            ' в ', ' на ', ' с ', ' к ', ' у ', ' о ', ' за ', ' из ', ' по ', ' от ',
+            ' до ', ' для ', ' при ', ' без ', ' под ', ' над ', ' между ', ' через ',
+            # Pronouns
+            ' я ', ' ты ', ' он ', ' она ', ' оно ', ' мы ', ' вы ', ' они ',
+            ' мне ', ' тебе ', ' ему ', ' ей ', ' нам ', ' вам ', ' им ',
+            ' меня ', ' тебя ', ' его ', ' её ', ' нас ', ' вас ', ' их ',
+            ' мой ', ' твой ', ' его ', ' её ', ' наш ', ' ваш ', ' свой ',
+            ' кто ', ' что ', ' какой ', ' который ', ' чей ', ' где ', ' когда ',
+            ' это ', ' этот ', ' эта ', ' эти ', ' тот ', ' та ', ' те ',
+            # Common verbs
+            ' был ', ' была ', ' было ', ' были ', ' есть ', ' быть ', ' будет ',
+            ' имеет ', ' имеют ', ' иметь ', ' имел ',
+            ' может ', ' могут ', ' мог ', ' могла ', ' мочь ',
+            ' хочет ', ' хотят ', ' хотел ', ' хотела ', ' хотеть ',
+            ' знает ', ' знают ', ' знал ', ' знала ', ' знать ',
+            ' видит ', ' видят ', ' видел ', ' видела ', ' видеть ',
+            ' говорит ', ' говорят ', ' говорил ', ' сказал ', ' сказала ',
+            ' делает ', ' делают ', ' делал ', ' делала ', ' делать ', ' сделать ',
+            ' идёт ', ' идут ', ' шёл ', ' шла ', ' идти ', ' пойти ',
+            # Conjunctions
+            ' и ', ' а ', ' но ', ' или ', ' да ', ' ни ', ' же ', ' ли ',
+            ' что ', ' чтобы ', ' если ', ' когда ', ' пока ', ' хотя ', ' потому ',
+            # Adverbs
+            ' не ', ' ещё ', ' уже ', ' очень ', ' так ', ' как ', ' тоже ', ' также ',
+            ' всё ', ' все ', ' только ', ' ещё ', ' даже ', ' здесь ', ' там ',
+            ' сейчас ', ' тогда ', ' потом ', ' теперь ', ' всегда ', ' никогда ',
+        ],
+        'min_markers': 3,
+    },
+    'zh': {
+        'type': 'character',  # Chinese uses characters, not space-separated words
+        'markers': [
+            # Common particles and grammatical markers
+            '的', '了', '是', '在', '有', '和', '与', '或', '但', '而',
+            '我', '你', '他', '她', '它', '们', '这', '那', '什么', '怎么',
+            '不', '也', '都', '就', '还', '又', '才', '已', '很', '太',
+            '着', '过', '地', '得', '吗', '呢', '吧', '啊', '呀', '哦',
+            '个', '些', '里', '上', '下', '中', '前', '后', '来', '去',
+            '说', '看', '想', '知', '要', '会', '能', '可', '应', '该',
+            '人', '时', '年', '月', '日', '天', '事', '话', '问', '答',
+            '大', '小', '多', '少', '高', '低', '长', '短', '好', '坏',
+            '为', '因', '所', '被', '把', '让', '给', '从', '到', '向',
+            '如果', '虽然', '但是', '因为', '所以', '而且', '或者', '不过',
+        ],
+        'min_markers': 5,  # Need more markers for Asian languages
+    },
+    'ja': {
+        'type': 'character',  # Japanese uses characters (hiragana, katakana, kanji)
+        'markers': [
+            # Hiragana particles and common words
+            'の', 'は', 'が', 'を', 'に', 'で', 'と', 'も', 'や', 'か',
+            'へ', 'より', 'から', 'まで', 'など', 'だけ', 'しか', 'ばかり',
+            'です', 'ます', 'でした', 'ました', 'である', 'ではない',
+            'ない', 'なかった', 'ある', 'あった', 'いる', 'いた',
+            'この', 'その', 'あの', 'どの', 'これ', 'それ', 'あれ', 'どれ',
+            'こと', 'もの', 'ところ', 'とき', 'ため', 'よう', 'ほう',
+            'する', 'した', 'して', 'される', 'された', 'させる',
+            'なる', 'なった', 'なって', 'できる', 'できた',
+            'いう', 'いった', 'おもう', 'おもった', 'みる', 'みた',
+            'くる', 'きた', 'いく', 'いった', 'くれる', 'もらう',
+            'という', 'として', 'について', 'によって', 'に対して',
+            # Common kanji compounds
+            '私', '彼', '彼女', '人', '時', '事', '物', '所', '方', '者',
+            '言', '思', '見', '知', '聞', '読', '書', '話', '考', '感',
+            '日本', '今日', '明日', '昨日', '今年', '来年', '去年',
+        ],
+        'min_markers': 5,
+    },
+    'ko': {
+        'type': 'character',  # Korean uses Hangul characters
+        'markers': [
+            # Common particles and endings
+            '은', '는', '이', '가', '을', '를', '의', '에', '에서', '로',
+            '으로', '와', '과', '하고', '랑', '이랑', '도', '만', '부터', '까지',
+            '이다', '입니다', '이에요', '예요', '였다', '였습니다',
+            '하다', '합니다', '해요', '했다', '했습니다', '하는',
+            '있다', '있습니다', '있어요', '없다', '없습니다', '없어요',
+            '이것', '그것', '저것', '여기', '거기', '저기', '어디',
+            '나', '너', '그', '그녀', '우리', '그들', '저', '제',
+            '수', '것', '때', '곳', '사람', '말', '일', '생각',
+            '하지', '않다', '않습니다', '못하다', '되다', '됩니다',
+            '보다', '오다', '가다', '주다', '받다', '알다', '모르다',
+            '그리고', '그러나', '하지만', '그래서', '왜냐하면', '만약',
+            '아주', '매우', '너무', '정말', '진짜', '많이', '조금',
+        ],
+        'min_markers': 5,
+    },
+}
+
+def detect_language_markers(text: str, lang_code: str) -> tuple:
+    """
+    Detect how many language markers are present in text.
+    Returns (marker_count, total_markers_checked, ratio)
+    """
+    if lang_code not in LANGUAGE_MARKERS:
+        return (0, 0, 0.0)
+    
+    lang_info = LANGUAGE_MARKERS[lang_code]
+    markers = lang_info['markers']
+    marker_type = lang_info['type']
+    
+    text_lower = text.lower()
+    marker_count = 0
+    
+    if marker_type == 'word':
+        # For space-separated languages, look for word patterns
+        for marker in markers:
+            if marker.lower() in text_lower:
+                marker_count += 1
+    else:
+        # For character-based languages (Chinese, Japanese, Korean)
+        for marker in markers:
+            if marker in text:  # Case-sensitive for Asian characters
+                marker_count += 1
+    
+    total_markers = len(markers)
+    ratio = marker_count / total_markers if total_markers > 0 else 0.0
+    
+    return (marker_count, total_markers, ratio)
+
+# ==================================================
 
 # ANSI Color codes for console output
 class Colors:
@@ -558,7 +911,7 @@ class BookTranslator:
         """
         Check if the translated text is actually different from the original.
         Returns True if translation appears to have occurred.
-        This is a conservative check - when in doubt, accept the translation.
+        Uses comprehensive language markers for accurate detection.
         """
         if VERBOSE_DEBUG:
             logger.translation_logger.debug(f"🔍 Validating translation: orig={len(original)} chars, trans={len(translated)} chars")
@@ -580,7 +933,7 @@ class BookTranslator:
                 logger.translation_logger.debug(f"   ✓ Short text - accepting")
             return True
         
-        # Normalize texts for comparison
+        # Normalize texts for comparison (for Latin-alphabet languages)
         orig_normalized = ' '.join(original.lower().split())
         trans_normalized = ' '.join(translated.lower().split())
         
@@ -590,33 +943,58 @@ class BookTranslator:
                 logger.translation_logger.debug(f"   ❌ Texts are identical - translation failed!")
             return False
         
-        # Calculate similarity ratio based on words
-        orig_words = set(orig_normalized.split())
-        trans_words = set(trans_normalized.split())
+        # For Latin-alphabet languages: Calculate word similarity
+        if source_lang not in ['zh', 'ja', 'ko']:
+            orig_words = set(orig_normalized.split())
+            trans_words = set(trans_normalized.split())
+            
+            if len(orig_words) > 0:
+                common_words = orig_words.intersection(trans_words)
+                similarity = len(common_words) / len(orig_words)
+                
+                if VERBOSE_DEBUG:
+                    logger.translation_logger.debug(f"   📊 Word similarity: {similarity:.1%} ({len(common_words)}/{len(orig_words)} common words)")
+                
+                # Reject if similarity is very high (>65%) - tightened threshold
+                if similarity > 0.65:
+                    logger.translation_logger.warning(f"⚠️ Very high similarity ({similarity:.2%}) suggests translation may have failed")
+                    return False
         
-        if len(orig_words) == 0:
-            return True
+        # Use comprehensive language markers to check if source language remains
+        if source_lang in LANGUAGE_MARKERS:
+            source_count, _, source_ratio = detect_language_markers(translated, source_lang)
+            lang_info = LANGUAGE_MARKERS[source_lang]
+            min_markers = lang_info['min_markers']
+            
+            # Calculate threshold based on text length
+            word_count = len(translated.split()) if lang_info['type'] == 'word' else len(translated)
+            
+            # Dynamic threshold: more lenient for short texts, stricter for long texts
+            if lang_info['type'] == 'word':
+                # For word-based languages
+                threshold = max(min_markers, min(8, word_count // 15))
+            else:
+                # For character-based languages (higher threshold)
+                threshold = max(min_markers + 2, min(12, word_count // 30))
+            
+            if VERBOSE_DEBUG:
+                logger.translation_logger.debug(f"   📊 Source markers in translation: {source_count} (threshold: {threshold})")
+            
+            if source_count > threshold:
+                logger.translation_logger.warning(f"Found {source_count} {source_lang.upper()} markers in 'translated' text (threshold: {threshold})")
+                return False
         
-        common_words = orig_words.intersection(trans_words)
-        similarity = len(common_words) / len(orig_words)
-        
-        if VERBOSE_DEBUG:
-            logger.translation_logger.debug(f"   📊 Word similarity: {similarity:.1%} ({len(common_words)}/{len(orig_words)} common words)")
-        
-        # Only reject if similarity is very high (>75%) - names and numbers are often kept
-        if similarity > 0.75:
-            logger.translation_logger.warning(f"⚠️ Very high similarity ({similarity:.2%}) suggests translation may have failed")
-            return False
-        
-        # Check for common source language patterns that shouldn't be in target
-        # For English to Spanish/other - only check if many markers present
-        if source_lang == 'en' and target_lang != 'en':
-            english_markers = [' the ', ' is ', ' are ', ' was ', ' were ', 
-                              ' said ', ' would ', ' could ', ' will ']
-            english_count = sum(1 for marker in english_markers if marker in translated.lower())
-            # Only fail if MANY English markers remain (more than 7)
-            if english_count > 7:
-                logger.translation_logger.warning(f"Found {english_count} English markers in 'translated' text")
+        # Also verify target language markers are present (positive check)
+        if target_lang in LANGUAGE_MARKERS:
+            target_count, _, _ = detect_language_markers(translated, target_lang)
+            target_min = LANGUAGE_MARKERS[target_lang]['min_markers']
+            
+            if VERBOSE_DEBUG:
+                logger.translation_logger.debug(f"   📊 Target markers in translation: {target_count} (min expected: {target_min})")
+            
+            # If no target language markers at all, suspicious
+            if target_count < target_min and len(translated) > 100:
+                logger.translation_logger.warning(f"Only {target_count} {target_lang.upper()} markers found - translation may have failed")
                 return False
         
         return True
@@ -667,42 +1045,78 @@ class BookTranslator:
     def _detect_untranslated_content(self, text: str, source_lang: str, target_lang: str) -> tuple:
         """
         Detect paragraphs that appear to be in the source language (untranslated).
+        Uses comprehensive LANGUAGE_MARKERS for accurate detection.
         Returns (cleaned_text, list_of_problematic_paragraphs)
         """
         if source_lang == target_lang:
+            return text, []
+        
+        if source_lang not in LANGUAGE_MARKERS:
+            # Can't detect for unsupported languages
             return text, []
         
         paragraphs = text.split('\n\n')
         cleaned_paragraphs = []
         problematic = []
         
+        lang_info = LANGUAGE_MARKERS[source_lang]
+        is_asian = lang_info['type'] == 'character'
+        base_min_markers = lang_info['min_markers']
+        
         for para in paragraphs:
             para = para.strip()
             if not para:
                 continue
             
-            # Skip short paragraphs or those that look like headers/names
-            if len(para) < 50:
+            # Skip very short paragraphs (likely headers, names, titles)
+            min_length = 15 if is_asian else 30
+            if len(para) < min_length:
                 cleaned_paragraphs.append(para)
                 continue
             
-            # Check if paragraph appears to be in English (source language)
-            if source_lang == 'en':
-                english_markers = ['the ', ' is ', ' are ', ' was ', ' were ', ' have ', ' has ',
-                                  ' said ', ' would ', ' could ', ' should ', ' will ', ' been ',
-                                  ' with ', ' from ', ' that ', ' this ', ' they ', ' their ']
-                marker_count = sum(1 for marker in english_markers if marker.lower() in para.lower())
-                
-                # If many English markers, this paragraph might not be translated
-                words = para.split()
-                if len(words) > 10 and marker_count >= 4:
-                    ratio = marker_count / len(words)
-                    if ratio > 0.1:  # More than 10% are English markers
-                        logger.translation_logger.warning(f"Detected possibly untranslated paragraph: {para[:50]}...")
-                        problematic.append(para)
-                        # Mark it so user can see it
-                        cleaned_paragraphs.append(f"[⚠️ POSIBLE TEXTO SIN TRADUCIR] {para}")
-                        continue
+            # Detect source language markers
+            marker_count, total_markers, ratio = detect_language_markers(para, source_lang)
+            
+            # Calculate text size metric
+            if is_asian:
+                text_size = len(para)  # Character count for Asian languages
+                # For Asian languages: threshold based on character count
+                # ~50 chars = 3 markers, ~100 chars = 5 markers, ~200+ chars = 8 markers
+                threshold = max(base_min_markers, min(10, text_size // 25))
+            else:
+                text_size = len(para.split())  # Word count for others
+                # For word-based languages: threshold based on word count
+                # 10-30 words = 3 markers, 30-60 words = 5 markers, 60+ words = 7 markers
+                if text_size < 30:
+                    threshold = base_min_markers
+                elif text_size < 60:
+                    threshold = base_min_markers + 2
+                else:
+                    threshold = base_min_markers + 4
+            
+            # Check if this paragraph seems to be in source language
+            is_suspicious = False
+            
+            if marker_count >= threshold:
+                # For word-based languages, also check marker density
+                if is_asian:
+                    # For Asian: if we find many markers, it's suspicious
+                    is_suspicious = True
+                else:
+                    # For Latin: check ratio of markers to words
+                    marker_ratio = marker_count / text_size if text_size > 0 else 0
+                    if marker_ratio > 0.06:  # More than 6% of words are markers
+                        is_suspicious = True
+            
+            if is_suspicious:
+                logger.translation_logger.warning(
+                    f"Detected possibly untranslated paragraph ({marker_count} {source_lang.upper()} markers, "
+                    f"threshold: {threshold}): {para[:60]}..."
+                )
+                problematic.append(para)
+                # Mark it so user can see it
+                cleaned_paragraphs.append(f"[⚠️ POSIBLE TEXTO SIN TRADUCIR] {para}")
+                continue
             
             cleaned_paragraphs.append(para)
         
