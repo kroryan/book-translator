@@ -51,3 +51,15 @@ logs/*
 
 # Temporary files
 nltk_data/
+
+# PyInstaller build files
+build/
+dist/
+*.spec.bak
+venv_build/
+*.manifest
+*.exe
+
+# Keep spec files (they are configuration)
+!book_translator.spec
+!book_translator_onefile.spec

@@ -44,7 +44,21 @@ ollama pull gpt-oss:20b
 
 5. **Start the application**
 
-**Option 1: Quick Launch (macOS)**
+**Option 1: Desktop App (Windows .exe)**
+
+Download `BookTranslator.exe` from the Releases page or build it yourself:
+```bash
+pip install pyinstaller pystray Pillow
+pyinstaller book_translator_onefile.spec
+# The .exe will be in dist/BookTranslator.exe
+```
+Features:
+- System tray icon for background operation
+- Server keeps running when you close the browser
+- Reopen anytime from the tray icon
+- Right-click tray icon → "Quit Completely" to exit
+
+**Option 2: Quick Launch (macOS)**
 ```bash
 ./Launch\ Book-Translator.command
 ```
@@ -54,7 +68,7 @@ This will automatically:
 - Open http://localhost:5001 in your browser
 - Clear translation cache
 
-**Option 2: Manual start**
+**Option 3: Manual start**
 ```bash
 python translator.py
 # Then open http://localhost:5001 in your browser

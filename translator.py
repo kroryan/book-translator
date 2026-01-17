@@ -18,7 +18,7 @@ import re
 from collections import deque
 from dataclasses import dataclass, field
 from functools import wraps
-from flask import Flask, request, jsonify, Response, send_from_directory
+from flask import Flask, request, jsonify, Response, send_from_directory, send_file
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import zipfile
@@ -29,20 +29,86 @@ from datetime import datetime as dt
 VERBOSE_DEBUG = True  # Set to False to reduce console output
 # ================================================
 
-app = Flask(__name__)
+# ============== PATH CONFIGURATION ==============
+# Detect if we're running as a packaged .exe
+def get_app_paths():
+    """Get the correct paths based on execution environment"""
+    if getattr(sys, 'frozen', False):
+        # Running as packaged .exe with PyInstaller
+        # APP_DIR: where the .exe is located (for persistent data)
+        # BUNDLE_DIR: where PyInstaller extracted files (for static/)
+        app_dir = os.environ.get('BOOK_TRANSLATOR_APP_DIR', os.path.dirname(sys.executable))
+        bundle_dir = os.environ.get('BOOK_TRANSLATOR_BUNDLE_DIR', getattr(sys, '_MEIPASS', app_dir))
+    else:
+        # Running as normal Python script
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        bundle_dir = app_dir
+    return app_dir, bundle_dir
+
+APP_DIR, BUNDLE_DIR = get_app_paths()
+# ================================================
+
+app = Flask(__name__, static_folder=os.path.join(BUNDLE_DIR, 'static'))
 CORS(app)
 
-# Folders setup
-UPLOAD_FOLDER = 'uploads'
-TRANSLATIONS_FOLDER = 'translations'
-STATIC_FOLDER = 'static'
-LOG_FOLDER = 'logs'
-DB_PATH = 'translations.db'
-CACHE_DB_PATH = 'cache.db'
+# Folders setup - use APP_DIR for persistent data
+UPLOAD_FOLDER = os.path.join(APP_DIR, 'uploads')
+TRANSLATIONS_FOLDER = os.path.join(APP_DIR, 'translations')
+STATIC_FOLDER = os.path.join(BUNDLE_DIR, 'static')
+LOG_FOLDER = os.path.join(APP_DIR, 'logs')
+DB_PATH = os.path.join(APP_DIR, 'translations.db')
+CACHE_DB_PATH = os.path.join(APP_DIR, 'cache.db')
 
 # Create necessary directories
-for folder in [UPLOAD_FOLDER, TRANSLATIONS_FOLDER, STATIC_FOLDER, LOG_FOLDER]:
+for folder in [UPLOAD_FOLDER, TRANSLATIONS_FOLDER, LOG_FOLDER]:
     os.makedirs(folder, exist_ok=True)
+
+# ============== IN-MEMORY LOG BUFFER ==============
+# This buffer stores logs for the frontend console panel
+class LogBuffer:
+    """Thread-safe circular buffer for storing logs"""
+    def __init__(self, max_size=500):
+        self.buffer = deque(maxlen=max_size)
+        self.lock = threading.Lock()
+        self.last_id = 0
+    
+    def add(self, level, source, message):
+        with self.lock:
+            self.last_id += 1
+            entry = {
+                'id': self.last_id,
+                'timestamp': datetime.now().strftime('%H:%M:%S.%f')[:-3],
+                'level': level,
+                'source': source,
+                'message': message
+            }
+            self.buffer.append(entry)
+            return entry
+    
+    def get_all(self):
+        with self.lock:
+            return list(self.buffer)
+    
+    def get_since(self, since_id):
+        with self.lock:
+            return [e for e in self.buffer if e['id'] > since_id]
+    
+    def clear(self):
+        with self.lock:
+            self.buffer.clear()
+            self.last_id = 0
+
+log_buffer = LogBuffer()
+
+def debug_print(message, level='INFO', source='DEBUG'):
+    """Print to console and add to log buffer for frontend visibility"""
+    # Strip ANSI codes for the buffer
+    clean_message = re.sub(r'\033\[[0-9;]*m', '', message)
+    log_buffer.add(level, source, clean_message)
+    # Still print to console with colors
+    print(message)
+
+# ==================================================
 
 # ANSI Color codes for console output
 class Colors:
@@ -72,6 +138,13 @@ class ColoredFormatter(logging.Formatter):
         logging.CRITICAL: Colors.BG_RED + Colors.WHITE,
     }
     
+    # Map for source names (without ANSI codes for buffer)
+    SOURCE_MAP = {
+        'app_logger': 'APP',
+        'translation_logger': 'TRANS',
+        'api_logger': 'API',
+    }
+    
     def format(self, record):
         # Add color based on level
         color = self.LEVEL_COLORS.get(record.levelno, Colors.RESET)
@@ -92,6 +165,10 @@ class ColoredFormatter(logging.Formatter):
         
         # Format message
         message = record.getMessage()
+        
+        # Also add to the in-memory buffer for the frontend
+        source = self.SOURCE_MAP.get(record.name, record.name)
+        log_buffer.add(record.levelname, source, message)
         
         return f'{Colors.GRAY}{timestamp}{Colors.RESET} {logger_tag} {level_name} {message}'
 
@@ -410,8 +487,6 @@ def init_db():
 
 init_db()
 
-# Import for regex (needed for cleaning)
-import re
 
 class BookTranslator:
     def __init__(self, model_name: str = "llama3.3:70b-instruct-q2_K", chunk_size: int = 1000):
@@ -744,15 +819,15 @@ class BookTranslator:
             
             # VERBOSE DEBUG: Print translation start banner
             if VERBOSE_DEBUG:
-                print(f"\n{Colors.CYAN}{'='*60}{Colors.RESET}")
-                print(f"{Colors.BOLD}{Colors.GREEN}📖 STARTING TRANSLATION #{translation_id}{Colors.RESET}")
-                print(f"{Colors.CYAN}{'='*60}{Colors.RESET}")
-                print(f"  📁 Total text: {len(text)} characters")
-                print(f"  🔢 Chunks: {total_chunks}")
-                print(f"  🌐 {source_lang} → {target_lang}")
-                print(f"  📚 Genre: {genre}")
-                print(f"  🤖 Model: {self.model_name}")
-                print(f"{Colors.CYAN}{'='*60}{Colors.RESET}\n")
+                debug_print(f"\n{'='*60}", 'INFO', 'TRANS')
+                debug_print(f"📖 STARTING TRANSLATION #{translation_id}", 'INFO', 'TRANS')
+                debug_print(f"{'='*60}", 'INFO', 'TRANS')
+                debug_print(f"  📁 Total text: {len(text)} characters", 'INFO', 'TRANS')
+                debug_print(f"  🔢 Chunks: {total_chunks}", 'INFO', 'TRANS')
+                debug_print(f"  🌐 {source_lang} → {target_lang}", 'INFO', 'TRANS')
+                debug_print(f"  📚 Genre: {genre}", 'INFO', 'TRANS')
+                debug_print(f"  🤖 Model: {self.model_name}", 'INFO', 'TRANS')
+                debug_print(f"{'='*60}\n", 'INFO', 'TRANS')
             
             logger.translation_logger.info(f"Starting translation {translation_id} with {total_chunks} chunks (genre: {genre})")
             
@@ -767,14 +842,14 @@ class BookTranslator:
             # STAGE 1: Primary translation with context
             logger.translation_logger.info("Stage 1: Primary LLM translation")
             if VERBOSE_DEBUG:
-                print(f"\n{Colors.YELLOW}▶ STAGE 1: Primary Translation{Colors.RESET}")
-                print(f"{'─'*40}")
+                debug_print(f"\n▶ STAGE 1: Primary Translation", 'INFO', 'TRANS')
+                debug_print(f"{'─'*40}", 'INFO', 'TRANS')
             
             for i, chunk in enumerate(chunks, 1):
                 try:
                     if VERBOSE_DEBUG:
-                        print(f"\n{Colors.BLUE}📝 Chunk {i}/{total_chunks}{Colors.RESET} ({len(chunk)} chars)")
-                        print(f"   Preview: {chunk[:80].replace(chr(10), ' ')}...")
+                        debug_print(f"\n📝 Chunk {i}/{total_chunks} ({len(chunk)} chars)", 'INFO', 'TRANS')
+                        debug_print(f"   Preview: {chunk[:80].replace(chr(10), ' ')}...", 'DEBUG', 'TRANS')
                     
                     # Get previous context FIRST (needed for context-aware caching)
                     previous_chunk = draft_translations[-1] if draft_translations else ""
@@ -789,17 +864,17 @@ class BookTranslator:
                         if draft_translation.startswith("[TRANSLATION_FAILED") or not self._is_likely_translated(chunk, draft_translation, source_lang, target_lang):
                             logger.translation_logger.warning(f"Cached stage 1 chunk {i} appears untranslated, re-translating...")
                             if VERBOSE_DEBUG:
-                                print(f"   {Colors.YELLOW}⚠️ Cache invalid, re-translating...{Colors.RESET}")
+                                debug_print(f"   ⚠️ Cache invalid, re-translating...", 'WARNING', 'TRANS')
                             cached_result = None  # Force re-translation
                         else:
                             logger.translation_logger.info(f"Cache hit for stage 1 chunk {i}")
                             if VERBOSE_DEBUG:
-                                print(f"   {Colors.GREEN}💾 Cache HIT{Colors.RESET}")
+                                debug_print(f"   💾 Cache HIT", 'INFO', 'TRANS')
                     
                     if not cached_result:
                         logger.translation_logger.info(f"Stage 1 translating chunk {i}/{total_chunks}")
                         if VERBOSE_DEBUG:
-                            print(f"   {Colors.CYAN}🔄 Translating...{Colors.RESET}", end='', flush=True)
+                            debug_print(f"   🔄 Translating...", 'INFO', 'TRANS')
                         
                         draft_translation = self.stage1_primary_translation(
                             text=chunk,
@@ -817,14 +892,14 @@ class BookTranslator:
                             error_msg = f"Chunk {i} translation failed after all retries"
                             logger.translation_logger.error(error_msg)
                             if VERBOSE_DEBUG:
-                                print(f"   {Colors.RED}❌ FAILED: {error_msg}{Colors.RESET}")
+                                debug_print(f"   ❌ FAILED: {error_msg}", 'ERROR', 'TRANS')
                             raise Exception(error_msg)
                         
                         # Clean the response to avoid duplicates
                         draft_translation = self._clean_translation_response(draft_translation, previous_chunk)
                         
                         if VERBOSE_DEBUG:
-                            print(f"   {Colors.GREEN}✓ Result: {draft_translation[:80].replace(chr(10), ' ')}...{Colors.RESET}")
+                            debug_print(f"   ✓ Result: {draft_translation[:80].replace(chr(10), ' ')}...", 'DEBUG', 'TRANS')
                         
                         # Only cache if translation was successful
                         if self._is_likely_translated(chunk, draft_translation, source_lang, target_lang):
@@ -855,13 +930,13 @@ class BookTranslator:
             # STAGE 2: Reflection and improvement
             logger.translation_logger.info("Stage 2: Reflection and improvement")
             if VERBOSE_DEBUG:
-                print(f"\n{Colors.YELLOW}▶ STAGE 2: Reflection & Improvement{Colors.RESET}")
-                print(f"{'─'*40}")
+                debug_print(f"\n▶ STAGE 2: Reflection & Improvement", 'INFO', 'TRANS')
+                debug_print(f"{'─'*40}", 'INFO', 'TRANS')
             
             for i, (original_chunk, draft_chunk) in enumerate(zip(chunks, draft_translations), 1):
                 try:
                     if VERBOSE_DEBUG:
-                        print(f"\n{Colors.BLUE}🔧 Improving Chunk {i}/{total_chunks}{Colors.RESET}")
+                        debug_print(f"\n🔧 Improving Chunk {i}/{total_chunks}", 'INFO', 'TRANS')
                     
                     # Get previous context FIRST (needed for context-aware caching)
                     previous_final = final_translations[-1] if final_translations else ""
@@ -876,17 +951,17 @@ class BookTranslator:
                         if final_translation.startswith("[TRANSLATION_FAILED") or not self._is_likely_translated(original_chunk, final_translation, source_lang, target_lang):
                             logger.translation_logger.warning(f"Cached stage 2 chunk {i} appears untranslated, re-translating...")
                             if VERBOSE_DEBUG:
-                                print(f"   {Colors.YELLOW}⚠️ Cache invalid, re-improving...{Colors.RESET}")
+                                debug_print(f"   ⚠️ Cache invalid, re-improving...", 'WARNING', 'TRANS')
                             cached_result = None  # Force re-translation
                         else:
                             logger.translation_logger.info(f"Cache hit for stage 2 chunk {i}")
                             if VERBOSE_DEBUG:
-                                print(f"   {Colors.GREEN}💾 Cache HIT{Colors.RESET}")
+                                debug_print(f"   💾 Cache HIT", 'INFO', 'TRANS')
                     
                     if not cached_result:
                         logger.translation_logger.info(f"Stage 2 improving chunk {i}/{total_chunks}")
                         if VERBOSE_DEBUG:
-                            print(f"   {Colors.CYAN}🔄 Improving...{Colors.RESET}", end='', flush=True)
+                            debug_print(f"   🔄 Improving...", 'INFO', 'TRANS')
                         
                         final_translation = self.stage2_reflection_improvement(
                             original_text=original_chunk,
@@ -898,7 +973,7 @@ class BookTranslator:
                         )
                         
                         if VERBOSE_DEBUG:
-                            print(f" Done!")
+                            debug_print(f"   ✅ Improvement done!", 'INFO', 'TRANS')
                         
                         # Check if translation failed
                         if final_translation.startswith("[TRANSLATION_FAILED"):
@@ -963,27 +1038,27 @@ class BookTranslator:
                         final_translations.append(draft_chunk)
                     else:
                         logger.translation_logger.error(f"No valid translation for chunk {i}, marking as failed")
-                        final_translations.append(f"[⚠️ TRADUCCIÓN FALLIDA - Chunk {i}]")
+                        final_translations.append(f"[⚠️ TRANSLATION FAILED - Chunk {i}]")
                 
             # Post-process: Remove any duplicate paragraphs in the final result
             final_text = '\n\n'.join(final_translations)
             
             if VERBOSE_DEBUG:
-                print(f"\n{Colors.YELLOW}▶ POST-PROCESSING{Colors.RESET}")
-                print(f"{'─'*40}")
-                print(f"   Removing duplicate paragraphs...")
+                debug_print(f"\n▶ POST-PROCESSING", 'INFO', 'TRANS')
+                debug_print(f"{'─'*40}", 'INFO', 'TRANS')
+                debug_print(f"   Removing duplicate paragraphs...", 'INFO', 'TRANS')
             
             final_text = self._remove_duplicate_paragraphs(final_text)
             
             # Detect and mark any untranslated content
             if VERBOSE_DEBUG:
-                print(f"   Detecting untranslated content...")
+                debug_print(f"   Detecting untranslated content...", 'INFO', 'TRANS')
             
             final_text, untranslated = self._detect_untranslated_content(final_text, source_lang, target_lang)
             if untranslated:
                 logger.translation_logger.warning(f"Found {len(untranslated)} possibly untranslated paragraphs")
                 if VERBOSE_DEBUG:
-                    print(f"   {Colors.YELLOW}⚠️ Found {len(untranslated)} possibly untranslated paragraphs{Colors.RESET}")
+                    debug_print(f"   ⚠️ Found {len(untranslated)} possibly untranslated paragraphs", 'WARNING', 'TRANS')
             
             draft_text = '\n\n'.join(draft_translations)
             
@@ -1004,15 +1079,15 @@ class BookTranslator:
             # VERBOSE DEBUG: Print completion banner
             if VERBOSE_DEBUG:
                 elapsed = time.time() - start_time
-                print(f"\n{Colors.GREEN}{'='*60}{Colors.RESET}")
-                print(f"{Colors.BOLD}{Colors.GREEN}✅ TRANSLATION COMPLETED!{Colors.RESET}")
-                print(f"{Colors.GREEN}{'='*60}{Colors.RESET}")
-                print(f"  ⏱️  Time: {elapsed:.1f} seconds")
-                print(f"  📄 Final text: {len(final_text)} characters")
-                print(f"  🔢 Chunks processed: {total_chunks}")
+                debug_print(f"\n{'='*60}", 'INFO', 'TRANS')
+                debug_print(f"✅ TRANSLATION COMPLETED!", 'INFO', 'TRANS')
+                debug_print(f"{'='*60}", 'INFO', 'TRANS')
+                debug_print(f"  ⏱️  Time: {elapsed:.1f} seconds", 'INFO', 'TRANS')
+                debug_print(f"  📄 Final text: {len(final_text)} characters", 'INFO', 'TRANS')
+                debug_print(f"  🔢 Chunks processed: {total_chunks}", 'INFO', 'TRANS')
                 if untranslated:
-                    print(f"  {Colors.YELLOW}⚠️  Warnings: {len(untranslated)} possibly untranslated sections{Colors.RESET}")
-                print(f"{Colors.GREEN}{'='*60}{Colors.RESET}\n")
+                    debug_print(f"  ⚠️  Warnings: {len(untranslated)} possibly untranslated sections", 'WARNING', 'TRANS')
+                debug_print(f"{'='*60}\n", 'INFO', 'TRANS')
             
             yield {
                 'progress': 100,
@@ -1030,11 +1105,11 @@ class BookTranslator:
             
             # VERBOSE DEBUG: Print error banner
             if VERBOSE_DEBUG:
-                print(f"\n{Colors.RED}{'='*60}{Colors.RESET}")
-                print(f"{Colors.BOLD}{Colors.RED}❌ TRANSLATION FAILED!{Colors.RESET}")
-                print(f"{Colors.RED}{'='*60}{Colors.RESET}")
-                print(f"  Error: {str(e)}")
-                print(f"{Colors.RED}{'='*60}{Colors.RESET}\n")
+                debug_print(f"\n{'='*60}", 'ERROR', 'TRANS')
+                debug_print(f"❌ TRANSLATION FAILED!", 'ERROR', 'TRANS')
+                debug_print(f"{'='*60}", 'ERROR', 'TRANS')
+                debug_print(f"  Error: {str(e)}", 'ERROR', 'TRANS')
+                debug_print(f"{'='*60}\n", 'ERROR', 'TRANS')
             
             with sqlite3.connect(DB_PATH) as conn:
                 conn.execute('''
@@ -1342,6 +1417,30 @@ def serve_frontend():
 @app.route('/<path:path>')
 def serve_static(path):
     return send_from_directory('static', path)
+
+@app.route('/logs', methods=['GET'])
+def get_logs():
+    """Get logs from in-memory buffer for the frontend console panel"""
+    since_id = request.args.get('since', 0, type=int)
+    if since_id > 0:
+        logs = log_buffer.get_since(since_id)
+    else:
+        logs = log_buffer.get_all()
+    return jsonify({'logs': logs})
+
+@app.route('/logs/stream')
+def stream_logs():
+    """Stream logs in real-time using Server-Sent Events"""
+    def generate():
+        last_id = 0
+        while True:
+            logs = log_buffer.get_since(last_id)
+            for log in logs:
+                last_id = log['id']
+                yield f"data: {json.dumps(log)}\n\n"
+            time.sleep(0.5)  # Poll every 500ms
+    
+    return Response(generate(), mimetype='text/event-stream')
 
 @app.route('/models', methods=['GET'])
 @with_error_handling
