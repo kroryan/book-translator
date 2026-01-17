@@ -615,10 +615,12 @@ class AppMonitor:
                 self.metrics.failed_translations += 1
     
     def get_system_metrics(self) -> Dict:
+        # Use appropriate disk path for Windows vs Unix
+        disk_path = os.path.splitdrive(os.getcwd())[0] + '\\' if os.name == 'nt' else '/'
         return {
             'cpu_percent': psutil.cpu_percent(),
             'memory_percent': psutil.virtual_memory().percent,
-            'disk_usage': psutil.disk_usage('/').percent,
+            'disk_usage': psutil.disk_usage(disk_path).percent,
             'uptime': time.time() - self.start_time
         }
     
@@ -666,6 +668,8 @@ class TranslationCache:
                     last_used TIMESTAMP
                 )
             ''')
+            # Create index for faster lookups by hash_key
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_cache_hash ON translation_cache(hash_key)')
 
     def _generate_hash(self, text: str, source_lang: str, target_lang: str, model: str = "", context_hash: str = "") -> str:
         """Generate a unique hash including context to avoid cache collisions."""
@@ -799,44 +803,53 @@ def with_error_handling(f: Callable):
 
 # Initialize database
 def init_db():
+    """Initialize database tables if they don't exist. Preserves existing data."""
     with sqlite3.connect(DB_PATH) as conn:
-        conn.executescript('''
-            DROP TABLE IF EXISTS chunks;
-            DROP TABLE IF EXISTS translations;
-            
-            CREATE TABLE translations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename TEXT NOT NULL,
-                source_lang TEXT NOT NULL,
-                target_lang TEXT NOT NULL,
-                model TEXT NOT NULL,
-                status TEXT NOT NULL,
-                progress REAL DEFAULT 0,
-                current_chunk INTEGER DEFAULT 0,
-                total_chunks INTEGER DEFAULT 0,
-                original_text TEXT,
-                machine_translation TEXT,
-                translated_text TEXT,
-                detected_language TEXT,
-                genre TEXT DEFAULT 'unknown',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                error_message TEXT
-            );
+        # Check if tables already exist
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='translations'")
+        tables_exist = cursor.fetchone() is not None
+        
+        if not tables_exist:
+            conn.executescript('''
+                CREATE TABLE IF NOT EXISTS translations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    filename TEXT NOT NULL,
+                    source_lang TEXT NOT NULL,
+                    target_lang TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    progress REAL DEFAULT 0,
+                    current_chunk INTEGER DEFAULT 0,
+                    total_chunks INTEGER DEFAULT 0,
+                    original_text TEXT,
+                    machine_translation TEXT,
+                    translated_text TEXT,
+                    detected_language TEXT,
+                    genre TEXT DEFAULT 'unknown',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    error_message TEXT
+                );
 
-            CREATE TABLE chunks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                translation_id INTEGER,
-                chunk_number INTEGER,
-                original_text TEXT,
-                machine_translation TEXT,
-                translated_text TEXT,
-                status TEXT,
-                error_message TEXT,
-                attempts INTEGER DEFAULT 0,
-                FOREIGN KEY (translation_id) REFERENCES translations (id)
-            );
-        ''')
+                CREATE TABLE IF NOT EXISTS chunks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    translation_id INTEGER,
+                    chunk_number INTEGER,
+                    original_text TEXT,
+                    machine_translation TEXT,
+                    translated_text TEXT,
+                    status TEXT,
+                    error_message TEXT,
+                    attempts INTEGER DEFAULT 0,
+                    FOREIGN KEY (translation_id) REFERENCES translations (id)
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_translations_status ON translations(status);
+                CREATE INDEX IF NOT EXISTS idx_chunks_translation_id ON chunks(translation_id);
+            ''')
+            logger.app_logger.info("Database tables created successfully")
+        else:
+            logger.app_logger.info("Database tables already exist")
 
 init_db()
 
@@ -1813,14 +1826,26 @@ recovery = TranslationRecovery()
 # Health checking middleware
 @app.before_request
 def check_ollama():
-    if request.endpoint != 'health_check':
+    # Skip health check for static files, frontend, health endpoint, and non-API routes
+    skip_endpoints = {
+        'health_check', 'serve_frontend', 'serve_static', 
+        'get_logs', 'stream_logs', 'get_metrics'
+    }
+    # Only check Ollama for translation-related API endpoints
+    api_endpoints = {'translate', 'get_models', 'retry_failed_translation'}
+    
+    if request.endpoint in skip_endpoints:
+        return None
+    
+    # Only do Ollama health check for critical API endpoints
+    if request.endpoint in api_endpoints:
         try:
             response = requests.get("http://localhost:11434/api/tags", timeout=5)
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
             logger.app_logger.error(f"Ollama health check failed: {str(e)}")
             return jsonify({
-                'error': 'Translation service is not available'
+                'error': 'Translation service is not available. Please ensure Ollama is running.'
             }), 503
         
 # Flask routes
@@ -2127,8 +2152,10 @@ def health_check():
         
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute('SELECT 1')
-            
-        disk_usage = psutil.disk_usage('/')
+        
+        # Use appropriate disk path for Windows vs Unix
+        disk_path = os.path.splitdrive(os.getcwd())[0] + '\\' if os.name == 'nt' else '/'
+        disk_usage = psutil.disk_usage(disk_path)
         if disk_usage.percent > 90:
             logger.app_logger.warning("Low disk space")
             
@@ -2145,8 +2172,11 @@ def health_check():
             'error': str(e)
         }), 503
     
+# Shutdown event for graceful thread termination
+shutdown_event = threading.Event()
+
 def cleanup_old_data():
-    while True:
+    while not shutdown_event.is_set():
         try:
             logger.app_logger.info("Running cleanup task")
             try:
@@ -2160,11 +2190,13 @@ def cleanup_old_data():
                 logger.app_logger.info("Failed translations cleanup completed")
             except Exception as e:
                 logger.app_logger.error(f"Failed translations cleanup error: {str(e)}")
-                
-            time.sleep(24 * 60 * 60)  # Run daily
+            
+            # Wait for 24 hours or until shutdown is signaled
+            shutdown_event.wait(24 * 60 * 60)
         except Exception as e:
             logger.app_logger.error(f"Cleanup task error: {str(e)}")
-            time.sleep(60 * 60)  # Retry in an hour
+            # Wait for 1 hour or until shutdown is signaled
+            shutdown_event.wait(60 * 60)
             
 # Start cleanup thread
 cleanup_thread = threading.Thread(target=cleanup_old_data, daemon=True)
@@ -2174,21 +2206,16 @@ if __name__ == "__main__":
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
         print("Shutting down gracefully...")
-        # Cleanup any running translations
-        try:
-            if 'translator' in locals():
-                translator.cleanup()
-        except Exception as e:
-            logger.app_logger.error(f"Cleanup error during shutdown: {str(e)}")
+        logger.app_logger.info("Received shutdown signal, cleaning up...")
+        
+        # Signal the cleanup thread to stop
+        shutdown_event.set()
+        
+        # Wait briefly for cleanup thread to finish
+        if cleanup_thread.is_alive():
+            cleanup_thread.join(timeout=2)
             
-        # Stop the cleanup thread
-        if 'cleanup_thread' in globals() and cleanup_thread.is_alive():
-            try:
-                # Signal the cleanup thread to stop
-                cleanup_thread._stop()
-            except Exception as e:
-                logger.app_logger.error(f"Error stopping cleanup thread: {str(e)}")
-                
+        logger.app_logger.info("Shutdown complete")
         sys.exit(0)
         
     signal.signal(signal.SIGINT, signal_handler)
