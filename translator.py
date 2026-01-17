@@ -874,21 +874,47 @@ class BookTranslator:
         """
         Clean the LLM response to remove any accidentally repeated content 
         from the previous chunk that the LLM might have included.
+        Also removes thinking tags and instruction repetitions.
         """
-        if not previous_chunk or not translation:
-            return translation.strip()
+        if not translation:
+            return ""
         
         translation = translation.strip()
         
+        # Remove <think> tags and their content (common in reasoning models)
+        import re
+        translation = re.sub(r'<think>.*?</think>', '', translation, flags=re.DOTALL | re.IGNORECASE)
+        translation = translation.strip()
+        
+        # Remove common instruction repetitions that models sometimes include
+        unwanted_patterns = [
+            r'IMPORTANT:\s*Return ONLY the translation.*?\n+',
+            r'IMPORTANTE:\s*Devuelve SOLO la traducción.*?\n+',
+            r'TEXT TO TRANSLATE:.*?\n+',
+            r'TEXTO A TRADUCIR:.*?\n+',
+            r'^\s*Here is the translation:?\s*\n*',
+            r'^\s*Here\'s the translation:?\s*\n*',
+            r'^\s*Translation:?\s*\n*',
+            r'^\s*Translated text:?\s*\n*',
+            r'^\s*\*\*Translation:?\*\*\s*\n*',
+            r'^\s*---+\s*\n*',
+        ]
+        
+        for pattern in unwanted_patterns:
+            translation = re.sub(pattern, '', translation, flags=re.IGNORECASE | re.MULTILINE)
+        
+        translation = translation.strip()
+        
+        if not previous_chunk:
+            return translation
+        
         # Remove any leading content that matches the end of the previous chunk
-        # This handles cases where the LLM includes context from the previous paragraph
         prev_lines = previous_chunk.strip().split('\n')
         
         # Check if translation starts with repeated content from previous chunk
         for i in range(min(5, len(prev_lines))):  # Check last 5 lines of previous
             check_text = '\n'.join(prev_lines[-(i+1):]).strip()
             if len(check_text) > 50 and translation.startswith(check_text):
-                # Remove the duplicated content
                 translation = translation[len(check_text):].strip()
                 logger.translation_logger.info(f"Removed {len(check_text)} chars of duplicate prefix")
                 break
@@ -897,26 +923,12 @@ class BookTranslator:
         if len(prev_lines) > 0:
             last_prev_line = prev_lines[-1].strip()
             if len(last_prev_line) > 30:
-                # Check if translation starts with a significant portion of the last line
                 for check_len in range(len(last_prev_line), 30, -10):
                     check_segment = last_prev_line[-check_len:]
                     if translation.startswith(check_segment):
                         translation = translation[len(check_segment):].strip()
                         logger.translation_logger.info(f"Removed {len(check_segment)} chars of partial duplicate")
                         break
-        
-        # Remove common LLM prefixes/suffixes that shouldn't be in the output
-        unwanted_prefixes = [
-            "Here is the translation:",
-            "Here's the translation:",
-            "Translation:",
-            "Translated text:",
-            "**Translation:**",
-            "---",
-        ]
-        for prefix in unwanted_prefixes:
-            if translation.lower().startswith(prefix.lower()):
-                translation = translation[len(prefix):].strip()
         
         return translation.strip()
     
@@ -982,13 +994,14 @@ class BookTranslator:
             # Calculate threshold based on text length
             word_count = len(translated.split()) if lang_info['type'] == 'word' else len(translated)
             
-            # Dynamic threshold: more lenient for short texts, stricter for long texts
+            # Dynamic threshold: MORE LENIENT for different models
+            # Some models include English words in reasoning or don't translate proper nouns
             if lang_info['type'] == 'word':
-                # For word-based languages
-                threshold = max(min_markers, min(8, word_count // 15))
+                # For word-based languages - increased threshold
+                threshold = max(min_markers * 2, min(15, word_count // 10))
             else:
-                # For character-based languages (higher threshold)
-                threshold = max(min_markers + 2, min(12, word_count // 30))
+                # For character-based languages
+                threshold = max(min_markers + 3, min(15, word_count // 20))
             
             if VERBOSE_DEBUG:
                 logger.translation_logger.debug(f"   📊 Source markers in translation: {source_count} (threshold: {threshold})")
