@@ -185,5 +185,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=os.path.join(spec_dir, 'static', 'favicon.ico') if os.path.exists(os.path.join(spec_dir, 'static', 'favicon.ico')) else None,
+    icon=os.path.join(spec_dir, 'app_icon.ico'),
 )
