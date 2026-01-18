@@ -243,7 +243,10 @@ def create_models_blueprint() -> Blueprint:
         try:
             client = get_ollama_client()
             models = client.list_models()
-            return jsonify({'models': models})
+            # Convert ModelInfo dataclasses to dicts for JSON serialization
+            models_list = [m.to_dict() if hasattr(m, 'to_dict') else {'name': m.name} for m in models]
+            logger.info(f"Found {len(models_list)} Ollama models")
+            return jsonify({'models': models_list})
         except Exception as e:
             logger.error(f"Error listing models: {e}")
             return jsonify({'error': str(e), 'models': []}), 500

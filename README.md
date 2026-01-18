@@ -11,7 +11,7 @@
 Support for multiple languages including English, Russian, Spanish, French, German, Italian, Portuguese, Chinese, Japanese, and Korean.  Genre-specific modes (fiction, technical, academic, business, poetry), real-time translation progress tracking for both stages, translation history and status monitoring, automatic error recovery and retry mechanisms, and multi-format export (TXT, PDF, EPUB).  <br>   <br> 
 
 <img width="1191" height="889" alt="Screenshot 2025-10-04 at 12 54 17" src="https://github.com/user-attachments/assets/35838c1c-26be-4594-a759-dbaa76a9494f" />
-
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kroryan/book-translator)
 ## Installation
 
 1. **Install Ollama**

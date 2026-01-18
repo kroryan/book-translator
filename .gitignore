@@ -81,3 +81,7 @@ venv_build/
 !book_translator_onefile.spec
 # Backup of old code
 old_code_backup/
+
+# Legacy files (superseded by book_translator/ package)
+translator.py
+app_desktop.py
