@@ -141,6 +141,7 @@ OUTPUT (final translation only):"""
         debug_print(f"[PROMPT S1] Length: {len(prompt)} chars", 'DEBUG', 'LLM')
         debug_print(f"[PROMPT S1] Input text ({len(chunk)} chars): {chunk[:150]}...", 'DEBUG', 'LLM')
 
+        last_cleaned = None
         for attempt in range(config.translation.max_retries):
             debug_print(f"[LLM] Sending request to {self.model_name} (attempt {attempt + 1})", 'INFO', 'LLM')
             start_time = time.time()
@@ -155,6 +156,7 @@ OUTPUT (final translation only):"""
                 debug_print(f"[RAW RESPONSE] Preview: {response.text[:200]}...", 'DEBUG', 'LLM')
 
                 cleaned = clean_translation_response(response.text, previous_chunk)
+                last_cleaned = cleaned
 
                 debug_print(f"[CLEANED] Length: {len(cleaned)} chars", 'DEBUG', 'LLM')
                 debug_print(f"[CLEANED] Preview: {cleaned[:200]}...", 'DEBUG', 'LLM')
@@ -174,7 +176,8 @@ OUTPUT (final translation only):"""
                 time.sleep(config.translation.retry_delay * (attempt + 1))
 
         debug_print(f"[TRANSLATION] FAILED after {config.translation.max_retries} attempts", 'ERROR', 'LLM')
-        return f"[TRANSLATION_FAILED: {chunk[:50]}...]"
+        # Cambiado: devolver el último intento aunque no pase la validación
+        return last_cleaned if last_cleaned is not None else f"[TRANSLATION_FAILED: {chunk[:50]}...]"
     
     def _translate_chunk_stage2(
         self,
