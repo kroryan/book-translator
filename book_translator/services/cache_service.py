@@ -168,16 +168,22 @@ class TranslationCache:
     def cleanup(self, days: int = None):
         """
         Remove old cache entries.
-        
+
         Args:
             days: Maximum age in days (uses config if not specified)
         """
         days = days or config.cache.max_age_days
-        
+        # Validate days is a positive integer to prevent injection
+        if not isinstance(days, int) or days < 1:
+            days = 30
+
         try:
             with sqlite3.connect(self.db_path) as conn:
+                # Use parameterized query with julianday for safe date arithmetic
                 cursor = conn.execute(
-                    f"DELETE FROM translation_cache WHERE last_used < datetime('now', '-{days} days')"
+                    """DELETE FROM translation_cache
+                       WHERE julianday('now') - julianday(last_used) > ?""",
+                    (days,)
                 )
                 deleted = cursor.rowcount
                 if deleted > 0:

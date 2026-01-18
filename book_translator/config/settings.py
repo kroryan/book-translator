@@ -36,6 +36,12 @@ def _get_float_env(key: str, default: float) -> float:
         return default
 
 
+def _generate_secret_key() -> str:
+    """Generate a secure random secret key."""
+    import secrets
+    return secrets.token_hex(32)
+
+
 def get_app_paths() -> Tuple[str, str]:
     """Get the correct paths based on execution environment."""
     if getattr(sys, 'frozen', False):
@@ -58,7 +64,7 @@ class ServerConfig:
     host: str = field(default_factory=lambda: os.environ.get("BOOK_TRANSLATOR_HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: _get_int_env("BOOK_TRANSLATOR_PORT", 5001))
     debug: bool = field(default_factory=lambda: _get_bool_env("BOOK_TRANSLATOR_DEBUG", False))
-    secret_key: str = field(default_factory=lambda: os.environ.get("SECRET_KEY", "dev-key-change-in-production"))
+    secret_key: str = field(default_factory=lambda: os.environ.get("SECRET_KEY") or _generate_secret_key())
     
     # CORS settings
     cors_origins: List[str] = field(default_factory=lambda: [

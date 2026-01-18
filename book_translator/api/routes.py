@@ -5,7 +5,9 @@ Flask blueprints for all API endpoints.
 """
 import json
 import time
+import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from flask import Blueprint, request, jsonify, Response, send_file, current_app
 from werkzeug.utils import secure_filename
@@ -23,6 +25,19 @@ from book_translator.database.repositories import (
 from book_translator.utils.validators import validate_file, validate_language, validate_model_name
 from book_translator.utils.logging import get_logger, debug_print
 from book_translator.utils.text_processing import clean_for_epub
+from book_translator.api.middleware import rate_limit
+
+# Global thread pool for translation tasks (limits concurrent translations)
+_translation_executor = None
+
+
+def get_translation_executor() -> ThreadPoolExecutor:
+    """Get or create the translation thread pool."""
+    global _translation_executor
+    if _translation_executor is None:
+        max_workers = config.translation.max_workers
+        _translation_executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix='translation')
+    return _translation_executor
 
 
 def create_translation_blueprint() -> Blueprint:
@@ -31,6 +46,7 @@ def create_translation_blueprint() -> Blueprint:
     logger = get_logger().api_logger
     
     @bp.route('/translate', methods=['POST'])
+    @rate_limit
     def start_translation():
         """Start a new translation."""
         try:
@@ -66,8 +82,20 @@ def create_translation_blueprint() -> Blueprint:
             upload_path = config.paths.upload_folder / filename
             file.save(str(upload_path))
             
-            # Read content
-            content = upload_path.read_text(encoding='utf-8')
+            # Read content with encoding detection
+            try:
+                content = upload_path.read_text(encoding='utf-8')
+            except UnicodeDecodeError:
+                # Try other common encodings
+                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        content = upload_path.read_text(encoding=encoding)
+                        logger.warning(f"File {filename} decoded with {encoding} (not UTF-8)")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                else:
+                    return jsonify({'error': 'Unable to decode file. Please use UTF-8 encoding.'}), 400
             file_size = upload_path.stat().st_size
             
             # Create translation record
@@ -124,9 +152,9 @@ def create_translation_blueprint() -> Blueprint:
                     logger.error(f"Translation {translation_id} failed: {e}")
                     repo.mark_failed(translation_id, str(e))
             
-            thread = threading.Thread(target=run_translation)
-            thread.daemon = True
-            thread.start()
+            # Submit translation to thread pool (limited concurrent translations)
+            executor = get_translation_executor()
+            executor.submit(run_translation)
             
             return jsonify({
                 'id': translation_id,
@@ -294,11 +322,23 @@ def create_health_blueprint() -> Blueprint:
         repo = get_translation_repository()
         stats = repo.get_stats()
         
-        # System metrics
+        # System metrics (cross-platform compatible)
+        import sys
+        if sys.platform == 'win32':
+            # On Windows, use the drive where the app is running
+            disk_path = os.path.splitdrive(os.getcwd())[0] + '\\'
+        else:
+            disk_path = '/'
+
+        try:
+            disk_percent = psutil.disk_usage(disk_path).percent
+        except Exception:
+            disk_percent = 0.0
+
         system_metrics = {
             'cpu_percent': psutil.cpu_percent(interval=1),
             'memory_percent': psutil.virtual_memory().percent,
-            'disk_usage': psutil.disk_usage('/').percent,
+            'disk_usage': disk_percent,
             'uptime': time.time() - psutil.boot_time()
         }
         

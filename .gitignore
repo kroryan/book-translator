@@ -67,6 +67,7 @@ Thumbs.db
 
 # Temporary files
 nltk_data/
+test.txt
 
 # PyInstaller build files
 build/
