@@ -14,6 +14,7 @@ from book_translator.config import config
 from book_translator.config.constants import TranslationStatus, SUPPORTED_LANGUAGES
 from book_translator.services.translator import BookTranslator
 from book_translator.services.ollama_client import get_ollama_client
+from dataclasses import asdict
 from book_translator.services.cache_service import get_cache
 from book_translator.database.repositories import (
     get_translation_repository,
@@ -43,8 +44,8 @@ def create_translation_blueprint() -> Blueprint:
             
             # Validate file type and size
             validation = validate_file(file)
-            if not validation['valid']:
-                return jsonify({'error': validation['error']}), 400
+            if not validation[0]:  # is_valid
+                return jsonify({'error': validation[1]}), 400  # error_message
             
             # Get parameters
             source_lang = request.form.get('source_lang', 'auto')
@@ -57,12 +58,12 @@ def create_translation_blueprint() -> Blueprint:
             
             # Validate model
             model_validation = validate_model_name(model_name)
-            if not model_validation['valid']:
-                return jsonify({'error': model_validation['error']}), 400
+            if not model_validation[0]:  # is_valid
+                return jsonify({'error': model_validation[1]}), 400  # error_message
             
             # Save file
             filename = secure_filename(file.filename)
-            upload_path = config.paths.uploads / filename
+            upload_path = config.paths.upload_folder / filename
             file.save(str(upload_path))
             
             # Read content
@@ -106,7 +107,7 @@ def create_translation_blueprint() -> Blueprint:
                         # Clean and save translated file
                         cleaned_text = clean_for_epub(final_result.translated_text)
                         output_filename = f"{Path(filename).stem}_{target_lang}.txt"
-                        output_path = config.paths.translations / output_filename
+                        output_path = config.paths.translations_folder / output_filename
                         output_path.write_text(cleaned_text, encoding='utf-8')
                         
                         processing_time = time.time() - start_time
@@ -236,26 +237,35 @@ def create_models_blueprint() -> Blueprint:
     """Create models routes blueprint."""
     bp = Blueprint('models', __name__, url_prefix='/api')
     logger = get_logger().api_logger
-    
+
     @bp.route('/models', methods=['GET'])
     def list_models():
         """List available Ollama models."""
         try:
             client = get_ollama_client()
             models = client.list_models()
-            # Convert ModelInfo dataclasses to dicts for JSON serialization
-            models_list = [m.to_dict() if hasattr(m, 'to_dict') else {'name': m.name} for m in models]
-            logger.info(f"Found {len(models_list)} Ollama models")
-            return jsonify({'models': models_list})
+            # Asegurar que la respuesta es una lista de dicts
+            if models:
+                # Si es una lista de dataclasses, convertir a dict
+                if hasattr(models[0], '__dataclass_fields__'):
+                    models = [asdict(m) for m in models]
+                # Si es una lista de objetos con __dict__, convertir
+                elif hasattr(models[0], '__dict__'):
+                    models = [m.__dict__ for m in models]
+                # Si es una lista de strings, convertir a dict
+                elif isinstance(models[0], str):
+                    models = [{'name': m} for m in models]
+            else:
+                models = []
+            return jsonify({'models': models}), 200
         except Exception as e:
-            logger.error(f"Error listing models: {e}")
-            return jsonify({'error': str(e), 'models': []}), 500
-    
+            return jsonify({'error': f'No se pudo obtener modelos de Ollama: {str(e)}', 'models': []}), 500
+
     @bp.route('/models/current', methods=['GET'])
     def get_current_model():
         """Get current default model."""
         return jsonify({'model': config.ollama.default_model})
-    
+
     return bp
 
 
@@ -273,6 +283,37 @@ def create_health_blueprint() -> Blueprint:
             'status': 'healthy' if ollama_healthy else 'degraded',
             'ollama': 'connected' if ollama_healthy else 'disconnected',
             'version': '2.0.0'
+        })
+    
+    @bp.route('/metrics', methods=['GET'])
+    def get_metrics():
+        """Get application metrics."""
+        import psutil
+        import time
+        
+        repo = get_translation_repository()
+        stats = repo.get_stats()
+        
+        # System metrics
+        system_metrics = {
+            'cpu_percent': psutil.cpu_percent(interval=1),
+            'memory_percent': psutil.virtual_memory().percent,
+            'disk_usage': psutil.disk_usage('/').percent,
+            'uptime': time.time() - psutil.boot_time()
+        }
+        
+        # Translation metrics
+        translation_metrics = {
+            'total_translations': stats.get('total', 0),
+            'completed_translations': stats.get('completed', 0),
+            'failed_translations': stats.get('failed', 0),
+            'success_rate': stats.get('success_rate', 100.0),
+            'average_translation_time': stats.get('avg_time', 0.0)
+        }
+        
+        return jsonify({
+            'translation_metrics': translation_metrics,
+            'system_metrics': system_metrics
         })
     
     @bp.route('/cache/stats', methods=['GET'])
@@ -308,7 +349,7 @@ def create_files_blueprint() -> Blueprint:
         if translation['status'] != 'completed':
             return jsonify({'error': 'Translation not yet complete'}), 400
         
-        file_path = config.paths.translations / translation['translated_filename']
+        file_path = config.paths.translations_folder / translation['translated_filename']
         
         if not file_path.exists():
             return jsonify({'error': 'File not found'}), 404

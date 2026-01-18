@@ -136,24 +136,44 @@ OUTPUT (final translation only):"""
         prompt = self._build_stage1_prompt(
             chunk, source_lang, target_lang, previous_chunk, genre
         )
-        
+
+        # Debug: Show prompt being sent
+        debug_print(f"[PROMPT S1] Length: {len(prompt)} chars", 'DEBUG', 'LLM')
+        debug_print(f"[PROMPT S1] Input text ({len(chunk)} chars): {chunk[:150]}...", 'DEBUG', 'LLM')
+
         for attempt in range(config.translation.max_retries):
+            debug_print(f"[LLM] Sending request to {self.model_name} (attempt {attempt + 1})", 'INFO', 'LLM')
+            start_time = time.time()
+
             response = self.client.generate(prompt, model=self.model_name)
-            
+
+            elapsed = time.time() - start_time
+            debug_print(f"[LLM] Response received in {elapsed:.2f}s", 'INFO', 'LLM')
+
             if response.success and response.text:
+                debug_print(f"[RAW RESPONSE] Length: {len(response.text)} chars", 'DEBUG', 'LLM')
+                debug_print(f"[RAW RESPONSE] Preview: {response.text[:200]}...", 'DEBUG', 'LLM')
+
                 cleaned = clean_translation_response(response.text, previous_chunk)
-                
+
+                debug_print(f"[CLEANED] Length: {len(cleaned)} chars", 'DEBUG', 'LLM')
+                debug_print(f"[CLEANED] Preview: {cleaned[:200]}...", 'DEBUG', 'LLM')
+
                 # Validate translation
                 if is_likely_translated(chunk, cleaned, source_lang, target_lang):
+                    debug_print(f"[VALIDATION] PASSED - Translation accepted", 'INFO', 'LLM')
                     return cleaned
                 else:
+                    debug_print(f"[VALIDATION] FAILED - Translation rejected (attempt {attempt + 1})", 'WARNING', 'LLM')
                     self.logger.warning(f"Translation validation failed, attempt {attempt + 1}")
             else:
+                debug_print(f"[LLM ERROR] {response.error}", 'ERROR', 'LLM')
                 self.logger.error(f"Generation failed: {response.error}")
-            
+
             if attempt < config.translation.max_retries - 1:
                 time.sleep(config.translation.retry_delay * (attempt + 1))
-        
+
+        debug_print(f"[TRANSLATION] FAILED after {config.translation.max_retries} attempts", 'ERROR', 'LLM')
         return f"[TRANSLATION_FAILED: {chunk[:50]}...]"
     
     def _translate_chunk_stage2(
@@ -166,24 +186,45 @@ OUTPUT (final translation only):"""
     ) -> str:
         """Improve a translation (stage 2)."""
         prompt = self._build_stage2_prompt(original, draft, source_lang, target_lang, genre)
-        
+
+        # Debug: Show prompt being sent
+        debug_print(f"[PROMPT S2] Length: {len(prompt)} chars", 'DEBUG', 'LLM')
+        debug_print(f"[PROMPT S2] Original ({len(original)} chars): {original[:100]}...", 'DEBUG', 'LLM')
+        debug_print(f"[PROMPT S2] Draft ({len(draft)} chars): {draft[:100]}...", 'DEBUG', 'LLM')
+
         for attempt in range(config.translation.max_retries):
+            debug_print(f"[LLM S2] Sending refinement request (attempt {attempt + 1})", 'INFO', 'LLM')
+            start_time = time.time()
+
             response = self.client.generate(prompt, model=self.model_name)
-            
+
+            elapsed = time.time() - start_time
+            debug_print(f"[LLM S2] Response received in {elapsed:.2f}s", 'INFO', 'LLM')
+
             if response.success and response.text:
+                debug_print(f"[RAW S2] Length: {len(response.text)} chars", 'DEBUG', 'LLM')
+                debug_print(f"[RAW S2] Preview: {response.text[:200]}...", 'DEBUG', 'LLM')
+
                 cleaned = clean_translation_response(response.text, "")
-                
+
+                debug_print(f"[CLEANED S2] Length: {len(cleaned)} chars", 'DEBUG', 'LLM')
+                debug_print(f"[CLEANED S2] Preview: {cleaned[:200]}...", 'DEBUG', 'LLM')
+
                 if is_likely_translated(original, cleaned, source_lang, target_lang):
+                    debug_print(f"[VALIDATION S2] PASSED - Refinement accepted", 'INFO', 'LLM')
                     return cleaned
                 else:
+                    debug_print(f"[VALIDATION S2] FAILED - Using original draft", 'WARNING', 'LLM')
                     self.logger.warning(f"Stage 2 validation failed, using draft")
                     return draft
             else:
+                debug_print(f"[LLM S2 ERROR] {response.error}", 'ERROR', 'LLM')
                 self.logger.error(f"Stage 2 generation failed: {response.error}")
-            
+
             if attempt < config.translation.max_retries - 1:
                 time.sleep(config.translation.retry_delay * (attempt + 1))
-        
+
+        debug_print(f"[S2 FALLBACK] Using draft after {config.translation.max_retries} failed attempts", 'WARNING', 'LLM')
         # Fall back to draft if stage 2 fails
         return draft
     
@@ -218,11 +259,22 @@ OUTPUT (final translation only):"""
         text = normalize_text(text)
         chunks = split_into_chunks(text)
         total_chunks = len(chunks)
-        
+
         self.logger.info(f"Starting translation: {total_chunks} chunks, {source_lang} -> {target_lang}")
-        
-        if config.logging.verbose_debug:
-            debug_print(f"📚 Starting translation: {total_chunks} chunks", 'INFO', 'TRANS')
+
+        # Detailed debug output
+        debug_print(f"{'='*60}", 'INFO', 'TRANS')
+        debug_print(f"[TRANSLATION START]", 'INFO', 'TRANS')
+        debug_print(f"  Model: {self.model_name}", 'INFO', 'TRANS')
+        debug_print(f"  Source: {source_lang} -> Target: {target_lang}", 'INFO', 'TRANS')
+        debug_print(f"  Total text length: {len(text)} chars", 'INFO', 'TRANS')
+        debug_print(f"  Chunks: {total_chunks}", 'INFO', 'TRANS')
+        debug_print(f"{'='*60}", 'INFO', 'TRANS')
+
+        # Show chunk breakdown
+        for idx, chunk in enumerate(chunks):
+            preview = chunk[:80].replace('\n', ' ')
+            debug_print(f"  [CHUNK {idx+1}] {len(chunk)} chars: {preview}...", 'DEBUG', 'TRANS')
         
         # Stage 1: Primary translations
         draft_translations: List[str] = []
@@ -231,21 +283,26 @@ OUTPUT (final translation only):"""
             chunk_num = i + 1
             previous_chunk = draft_translations[-1] if draft_translations else ""
             context_hash = self._get_context_hash(previous_chunk)
-            
-            if config.logging.verbose_debug:
-                debug_print(f"📝 Stage 1: Chunk {chunk_num}/{total_chunks}", 'INFO', 'TRANS')
-            
+
+            debug_print(f"", 'INFO', 'TRANS')
+            debug_print(f"{'='*60}", 'INFO', 'TRANS')
+            debug_print(f"[STAGE 1] Chunk {chunk_num}/{total_chunks}", 'INFO', 'TRANS')
+            debug_print(f"  Chunk size: {len(chunk)} chars", 'DEBUG', 'TRANS')
+            debug_print(f"  Context hash: {context_hash[:16] if context_hash else 'none'}...", 'DEBUG', 'TRANS')
+
             # Check cache
             cached = self.cache.get(
-                chunk, source_lang, target_lang, 
+                chunk, source_lang, target_lang,
                 f"{self.model_name}_stage1", context_hash
             )
-            
+
             if cached and not cached['translated_text'].startswith('[TRANSLATION_FAILED'):
                 draft = cached['machine_translation'] or cached['translated_text']
                 if is_likely_translated(chunk, draft, source_lang, target_lang):
+                    debug_print(f"[CACHE HIT] Using cached translation ({len(draft)} chars)", 'INFO', 'CACHE')
+                    debug_print(f"  Cached text: {draft[:100]}...", 'DEBUG', 'CACHE')
                     draft_translations.append(draft)
-                    
+
                     yield TranslationProgress(
                         progress=(chunk_num / (total_chunks * 2)) * 100,
                         stage='primary_translation',
@@ -255,57 +312,72 @@ OUTPUT (final translation only):"""
                         total_chunks=total_chunks * 2
                     )
                     continue
-            
+
+            debug_print(f"[CACHE MISS] Requesting new translation", 'INFO', 'CACHE')
+
             # Translate
             draft = self._translate_chunk_stage1(
                 chunk, source_lang, target_lang, previous_chunk, genre
             )
-            
+
             if not draft.startswith('[TRANSLATION_FAILED'):
+                debug_print(f"[CACHE SAVE] Storing translation ({len(draft)} chars)", 'DEBUG', 'CACHE')
                 # Cache successful translation
                 self.cache.set(
                     chunk, draft, draft,
                     source_lang, target_lang,
                     f"{self.model_name}_stage1", context_hash
                 )
-            
+
             draft_translations.append(draft)
-            
+            progress_pct = (chunk_num / (total_chunks * 2)) * 100
+            debug_print(f"[PROGRESS] {progress_pct:.1f}% complete", 'INFO', 'TRANS')
+
             yield TranslationProgress(
-                progress=(chunk_num / (total_chunks * 2)) * 100,
+                progress=progress_pct,
                 stage='primary_translation',
                 original_text='\n\n'.join(chunks),
                 machine_translation='\n\n'.join(draft_translations),
                 current_chunk=chunk_num,
                 total_chunks=total_chunks * 2
             )
-            
+
             # Delay between chunks
             if config.translation.chunk_delay > 0:
                 time.sleep(config.translation.chunk_delay)
         
         # Stage 2: Reflection and improvement
+        debug_print(f"", 'INFO', 'TRANS')
+        debug_print(f"{'='*60}", 'INFO', 'TRANS')
+        debug_print(f"[STAGE 2 START] Beginning refinement phase", 'INFO', 'TRANS')
+        debug_print(f"{'='*60}", 'INFO', 'TRANS')
+
         final_translations: List[str] = []
-        
+
         for i, (chunk, draft) in enumerate(zip(chunks, draft_translations)):
             chunk_num = i + 1
             previous_final = final_translations[-1] if final_translations else ""
             context_hash = self._get_context_hash(previous_final)
-            
-            if config.logging.verbose_debug:
-                debug_print(f"✨ Stage 2: Chunk {chunk_num}/{total_chunks}", 'INFO', 'TRANS')
-            
+
+            debug_print(f"", 'INFO', 'TRANS')
+            debug_print(f"{'='*60}", 'INFO', 'TRANS')
+            debug_print(f"[STAGE 2] Chunk {chunk_num}/{total_chunks}", 'INFO', 'TRANS')
+            debug_print(f"  Original: {len(chunk)} chars", 'DEBUG', 'TRANS')
+            debug_print(f"  Draft: {len(draft)} chars", 'DEBUG', 'TRANS')
+
             # Check cache for stage 2
             cached = self.cache.get(
                 chunk, source_lang, target_lang,
                 f"{self.model_name}_stage2", context_hash
             )
-            
+
             if cached and not cached['translated_text'].startswith('[TRANSLATION_FAILED'):
                 final = cached['translated_text']
                 if is_likely_translated(chunk, final, source_lang, target_lang):
+                    debug_print(f"[CACHE HIT S2] Using cached refinement ({len(final)} chars)", 'INFO', 'CACHE')
+                    debug_print(f"  Cached text: {final[:100]}...", 'DEBUG', 'CACHE')
                     final_translations.append(final)
-                    
+
                     yield TranslationProgress(
                         progress=((chunk_num + total_chunks) / (total_chunks * 2)) * 100,
                         stage='reflection_improvement',
@@ -316,28 +388,35 @@ OUTPUT (final translation only):"""
                         total_chunks=total_chunks * 2
                     )
                     continue
-            
+
             # Skip stage 2 if stage 1 failed
             if draft.startswith('[TRANSLATION_FAILED'):
+                debug_print(f"[SKIP S2] Stage 1 failed, skipping refinement", 'WARNING', 'TRANS')
                 final_translations.append(draft)
             else:
+                debug_print(f"[CACHE MISS S2] Requesting refinement", 'INFO', 'CACHE')
+
                 # Improve translation
                 final = self._translate_chunk_stage2(
                     chunk, draft, source_lang, target_lang, genre
                 )
-                
+
                 # Cache successful translation
                 if not final.startswith('[TRANSLATION_FAILED'):
+                    debug_print(f"[CACHE SAVE S2] Storing refinement ({len(final)} chars)", 'DEBUG', 'CACHE')
                     self.cache.set(
                         chunk, final, draft,
                         source_lang, target_lang,
                         f"{self.model_name}_stage2", context_hash
                     )
-                
+
                 final_translations.append(final)
-            
+
+            progress_pct = ((chunk_num + total_chunks) / (total_chunks * 2)) * 100
+            debug_print(f"[PROGRESS] {progress_pct:.1f}% complete", 'INFO', 'TRANS')
+
             yield TranslationProgress(
-                progress=((chunk_num + total_chunks) / (total_chunks * 2)) * 100,
+                progress=progress_pct,
                 stage='reflection_improvement',
                 original_text='\n\n'.join(chunks),
                 machine_translation='\n\n'.join(draft_translations),
@@ -345,19 +424,28 @@ OUTPUT (final translation only):"""
                 current_chunk=chunk_num + total_chunks,
                 total_chunks=total_chunks * 2
             )
-            
+
             if config.translation.chunk_delay > 0:
                 time.sleep(config.translation.chunk_delay)
         
         # Final result
         self.logger.info(f"Translation complete: {total_chunks} chunks processed")
-        
+
+        final_text = '\n\n'.join(final_translations)
+        debug_print(f"", 'INFO', 'TRANS')
+        debug_print(f"{'='*60}", 'INFO', 'TRANS')
+        debug_print(f"[TRANSLATION COMPLETE]", 'INFO', 'TRANS')
+        debug_print(f"  Chunks processed: {total_chunks}", 'INFO', 'TRANS')
+        debug_print(f"  Original length: {len(text)} chars", 'INFO', 'TRANS')
+        debug_print(f"  Final length: {len(final_text)} chars", 'INFO', 'TRANS')
+        debug_print(f"{'='*60}", 'INFO', 'TRANS')
+
         yield TranslationProgress(
             progress=100,
             stage='completed',
             original_text='\n\n'.join(chunks),
             machine_translation='\n\n'.join(draft_translations),
-            translated_text='\n\n'.join(final_translations),
+            translated_text=final_text,
             current_chunk=total_chunks * 2,
             total_chunks=total_chunks * 2
         )

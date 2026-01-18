@@ -6,6 +6,7 @@ Functions for processing and manipulating text.
 import re
 from typing import List, Tuple
 from book_translator.config import config
+from book_translator.utils.logging import debug_print
 
 
 def normalize_text(text: str) -> str:
@@ -90,26 +91,38 @@ def split_into_chunks(text: str, max_length: int = None) -> List[str]:
     # Don't forget the last chunk
     if current_chunk:
         chunks.append('\n\n'.join(current_chunk))
-    
-    return chunks if chunks else [text]
+
+    result = chunks if chunks else [text]
+
+    # Debug output for chunking
+    debug_print(f"[CHUNKING] Split text into {len(result)} chunks", 'DEBUG', 'TEXT')
+    debug_print(f"  Input: {len(text)} chars, {len(paragraphs)} paragraphs", 'DEBUG', 'TEXT')
+    debug_print(f"  Max chunk size: {max_length} chars", 'DEBUG', 'TEXT')
+    for i, chunk in enumerate(result):
+        preview = chunk[:60].replace('\n', ' ')
+        debug_print(f"  Chunk {i+1}: {len(chunk)} chars - {preview}...", 'DEBUG', 'TEXT')
+
+    return result
 
 
 def clean_translation_response(translation: str, previous_chunk: str = "") -> str:
     """
     Clean the LLM response to remove unwanted content.
     Removes thinking tags, instruction echoes, and other artifacts.
-    
+
     Args:
         translation: Raw translation from LLM
         previous_chunk: Previous chunk for detecting repetition
-    
+
     Returns:
         Cleaned translation
     """
     if not translation:
         return ""
-    
+
+    original_len = len(translation)
     translation = translation.strip()
+    debug_print(f"[CLEAN] Starting cleanup of {original_len} chars", 'DEBUG', 'TEXT')
     
     # ========== PHASE 1: Remove thinking/reasoning tags ==========
     # Remove <think> tags and their content (common in reasoning models like DeepSeek)
@@ -227,7 +240,13 @@ def clean_translation_response(translation: str, previous_chunk: str = "") -> st
                     if translation.startswith(check_segment):
                         translation = translation[len(check_segment):].strip()
                         break
-    
+
+    final_len = len(translation.strip())
+    if original_len != final_len:
+        debug_print(f"[CLEAN] Removed {original_len - final_len} chars ({original_len} -> {final_len})", 'DEBUG', 'TEXT')
+    else:
+        debug_print(f"[CLEAN] No changes needed ({final_len} chars)", 'DEBUG', 'TEXT')
+
     return translation.strip()
 
 

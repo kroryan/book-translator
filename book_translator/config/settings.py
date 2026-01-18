@@ -6,6 +6,7 @@ All configuration values in one place, configurable via environment variables.
 import os
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Tuple
 
 
@@ -158,27 +159,27 @@ class PathConfig:
     """Path configuration."""
     app_dir: str = field(default_factory=lambda: APP_DIR)
     bundle_dir: str = field(default_factory=lambda: BUNDLE_DIR)
-    
+
     @property
-    def upload_folder(self) -> str:
-        return os.path.join(self.app_dir, 'uploads')
-    
+    def upload_folder(self) -> Path:
+        return Path(self.app_dir) / 'uploads'
+
     @property
-    def translations_folder(self) -> str:
-        return os.path.join(self.app_dir, 'translations')
-    
+    def translations_folder(self) -> Path:
+        return Path(self.app_dir) / 'translations'
+
     @property
     def static_folder(self) -> str:
         return os.path.join(self.bundle_dir, 'static')
-    
+
     @property
-    def log_folder(self) -> str:
-        return os.path.join(self.app_dir, 'logs')
-    
+    def log_folder(self) -> Path:
+        return Path(self.app_dir) / 'logs'
+
     @property
     def db_path(self) -> str:
         return os.path.join(self.app_dir, 'translations.db')
-    
+
     @property
     def cache_db_path(self) -> str:
         return os.path.join(self.app_dir, 'cache.db')

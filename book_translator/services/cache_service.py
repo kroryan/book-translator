@@ -77,11 +77,11 @@ class TranslationCache:
         
         hash_key = self._generate_hash(text, source_lang, target_lang, model, context_hash)
         
-        if config.logging.verbose_debug:
-            debug_print(
-                f"🔍 Cache lookup: hash={hash_key[:16]}... model={model} ctx={context_hash[:8] if context_hash else 'none'}",
-                'DEBUG', 'CACHE'
-            )
+        debug_print(
+            f"[CACHE LOOKUP] hash={hash_key[:16]}... model={model} ctx={context_hash[:8] if context_hash else 'none'}",
+            'DEBUG', 'CACHE'
+        )
+        debug_print(f"  Text preview: {text[:60].replace(chr(10), ' ')}...", 'DEBUG', 'CACHE')
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -93,23 +93,22 @@ class TranslationCache:
                 
                 result = cur.fetchone()
                 if result:
-                    if config.logging.verbose_debug:
-                        debug_print(f"   💾 Cache HIT! ({len(result[0])} chars)", 'DEBUG', 'CACHE')
-                    
+                    debug_print(f"  [HIT] Found cached translation ({len(result[0])} chars)", 'INFO', 'CACHE')
+                    debug_print(f"  [HIT] Preview: {result[0][:80].replace(chr(10), ' ')}...", 'DEBUG', 'CACHE')
+
                     # Update last_used timestamp
                     conn.execute('''
                         UPDATE translation_cache
                         SET last_used = CURRENT_TIMESTAMP
                         WHERE hash_key = ?
                     ''', (hash_key,))
-                    
+
                     return {
                         'translated_text': result[0],
                         'machine_translation': result[1]
                     }
-            
-            if config.logging.verbose_debug:
-                debug_print(f"   ❌ Cache MISS", 'DEBUG', 'CACHE')
+
+            debug_print(f"  [MISS] No cached translation found", 'INFO', 'CACHE')
             return None
             
         except sqlite3.Error as e:
@@ -139,26 +138,31 @@ class TranslationCache:
             context_hash: Context hash
         """
         if not config.cache.enabled:
+            debug_print(f"[CACHE DISABLED] Skipping cache store", 'DEBUG', 'CACHE')
             return
-        
+
         hash_key = self._generate_hash(text, source_lang, target_lang, model, context_hash)
-        
-        if config.logging.verbose_debug:
-            debug_print(
-                f"💾 Caching translation: hash={hash_key[:16]}... ({len(translated_text)} chars)",
-                'DEBUG', 'CACHE'
-            )
-        
+
+        debug_print(
+            f"[CACHE STORE] hash={hash_key[:16]}... model={model}",
+            'DEBUG', 'CACHE'
+        )
+        debug_print(f"  Original: {len(text)} chars", 'DEBUG', 'CACHE')
+        debug_print(f"  Translation: {len(translated_text)} chars", 'DEBUG', 'CACHE')
+        debug_print(f"  Preview: {translated_text[:80].replace(chr(10), ' ')}...", 'DEBUG', 'CACHE')
+
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute('''
                     INSERT OR REPLACE INTO translation_cache
-                    (hash_key, source_lang, target_lang, original_text, translated_text, 
+                    (hash_key, source_lang, target_lang, original_text, translated_text,
                      machine_translation, model, created_at, last_used)
                     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ''', (hash_key, source_lang, target_lang, text, translated_text, 
+                ''', (hash_key, source_lang, target_lang, text, translated_text,
                       machine_translation, model))
+            debug_print(f"  [STORED] Successfully cached translation", 'DEBUG', 'CACHE')
         except sqlite3.Error as e:
+            debug_print(f"  [ERROR] Cache store failed: {e}", 'ERROR', 'CACHE')
             self.logger.error(f"Cache store error: {e}")
     
     def cleanup(self, days: int = None):

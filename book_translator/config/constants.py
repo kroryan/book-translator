@@ -22,7 +22,7 @@ SUPPORTED_LANGUAGES = {
 class TranslationStatus(str, Enum):
     """Status of a translation job."""
     PENDING = "pending"
-    IN_PROGRESS = "in_progress"
+    PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"

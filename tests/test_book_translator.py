@@ -42,9 +42,9 @@ class TestConstants:
     def test_translation_status_enum(self):
         """Test TranslationStatus enum values."""
         from book_translator.config.constants import TranslationStatus
-        
+
         assert TranslationStatus.PENDING.value == 'pending'
-        assert TranslationStatus.IN_PROGRESS.value == 'in_progress'
+        assert TranslationStatus.PROCESSING.value == 'processing'
         assert TranslationStatus.COMPLETED.value == 'completed'
         assert TranslationStatus.FAILED.value == 'failed'
     
