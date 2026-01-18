@@ -11,6 +11,7 @@ from book_translator.config import config
 def normalize_text(text: str) -> str:
     """
     Normalize text by removing extra whitespace and standardizing line endings.
+    Preserves paragraph structure and dialogue formatting.
     
     Args:
         text: Text to normalize
@@ -29,6 +30,7 @@ def split_into_chunks(text: str, max_length: int = None) -> List[str]:
     """
     Split text into smaller chunks for translation.
     Ensures clean boundaries at paragraph level when possible.
+    Preserves original formatting (paragraphs, dialogue, etc.)
     
     Args:
         text: Text to split
@@ -95,6 +97,7 @@ def split_into_chunks(text: str, max_length: int = None) -> List[str]:
 def clean_translation_response(translation: str, previous_chunk: str = "") -> str:
     """
     Clean the LLM response to remove unwanted content.
+    Removes thinking tags, instruction echoes, and other artifacts.
     
     Args:
         translation: Raw translation from LLM
@@ -108,43 +111,206 @@ def clean_translation_response(translation: str, previous_chunk: str = "") -> st
     
     translation = translation.strip()
     
-    # Remove <think> tags and their content (common in reasoning models)
+    # ========== PHASE 1: Remove thinking/reasoning tags ==========
+    # Remove <think> tags and their content (common in reasoning models like DeepSeek)
     translation = re.sub(r'<think>.*?</think>', '', translation, flags=re.DOTALL | re.IGNORECASE)
+    translation = re.sub(r'<thinking>.*?</thinking>', '', translation, flags=re.DOTALL | re.IGNORECASE)
+    translation = re.sub(r'<reasoning>.*?</reasoning>', '', translation, flags=re.DOTALL | re.IGNORECASE)
+    translation = re.sub(r'<reflection>.*?</reflection>', '', translation, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove unclosed thinking tags (if model was cut off)
+    translation = re.sub(r'<think>.*$', '', translation, flags=re.DOTALL | re.IGNORECASE)
+    translation = re.sub(r'<thinking>.*$', '', translation, flags=re.DOTALL | re.IGNORECASE)
+    
     translation = translation.strip()
     
-    # Remove common instruction repetitions
+    # ========== PHASE 2: Remove instruction echoes ==========
+    # These are patterns where the model echoes parts of the prompt
     unwanted_patterns = [
-        r'IMPORTANT:\s*Return ONLY the translation.*?\n+',
-        r'IMPORTANTE:\s*Devuelve SOLO la traducción.*?\n+',
+        # English instruction echoes
+        r'IMPORTANT:\s*Return ONLY the translation[^\n]*\n*',
+        r'IMPORTANT:\s*Devolver SOLO la traducción[^\n]*\n*',
+        r'IMPORTANTE:\s*Devolver SOLO la traducción[^\n]*\n*',
+        r'IMPORTANTE:\s*Devuelve SOLO la traducción[^\n]*\n*',
+        r'IMPORTANTE:\s*Return ONLY[^\n]*\n*',
+        r'Return ONLY the translation[^\n]*\n*',
+        r'Devolver SOLO la traducción[^\n]*\n*',
+        r'No repita contenido previo[^\n]*\n*',
+        r'Do not repeat previous content[^\n]*\n*',
+        
+        # Section headers from prompts
         r'TEXT TO TRANSLATE:.*?\n+',
         r'TEXTO A TRADUCIR:.*?\n+',
+        r'ORIGINAL TEXT:.*?\n+',
+        r'TEXTO ORIGINAL:.*?\n+',
+        r'CONTEXT \(previous translation[^\)]*\):.*?\n+',
+        r'CONTEXTO \(traducción anterior[^\)]*\):.*?\n+',
+        
+        # Requirements section echoes
+        r'REQUIREMENTS:.*?(?=\n[A-Z]|\n\n|\Z)',
+        r'REQUISITOS:.*?(?=\n[A-Z]|\n\n|\Z)',
+        r'GENRE:.*?\n+',
+        r'GÉNERO:.*?\n+',
+        
+        # Common LLM prefixes
         r'^\s*Here is the translation:?\s*\n*',
         r'^\s*Here\'s the translation:?\s*\n*',
+        r'^\s*Aquí está la traducción:?\s*\n*',
+        r'^\s*La traducción es:?\s*\n*',
         r'^\s*Translation:?\s*\n*',
+        r'^\s*Traducción:?\s*\n*',
         r'^\s*Translated text:?\s*\n*',
+        r'^\s*Texto traducido:?\s*\n*',
         r'^\s*\*\*Translation:?\*\*\s*\n*',
+        r'^\s*\*\*Traducción:?\*\*\s*\n*',
+        
+        # Markdown artifacts
         r'^\s*---+\s*\n*',
+        r'^\s*\*\*\*+\s*\n*',
+        r'^\s*```[a-z]*\s*\n*',
+        r'\s*```\s*$',
+        
+        # Notes and explanations at the end
+        r'\n+\*?\*?Note:.*$',
+        r'\n+\*?\*?Nota:.*$',
+        r'\n+\[Note:.*?\]',
+        r'\n+\[Nota:.*?\]',
+        r'\n+---+\s*\n+.*$',
     ]
     
     for pattern in unwanted_patterns:
+        translation = re.sub(pattern, '', translation, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
+    
+    translation = translation.strip()
+    
+    # ========== PHASE 3: Remove prompt context that leaked ==========
+    # Sometimes the model includes the "previous translation for continuity" context
+    context_markers = [
+        r'^.*?(?:for continuity|para continuidad):?\s*\n+',
+        r'^.*?(?:previous translation|traducción anterior):?\s*\n+',
+        r'INICIOS?\s*\n+',  # Sometimes models output this marker
+        r'BEGINNINGS?\s*\n+',
+    ]
+    
+    for pattern in context_markers:
         translation = re.sub(pattern, '', translation, flags=re.IGNORECASE | re.MULTILINE)
     
     translation = translation.strip()
     
+    # ========== PHASE 4: Remove quotes wrapping ==========
     # Remove leading/trailing quotes that might have been added
-    if translation.startswith('"') and translation.endswith('"'):
-        translation = translation[1:-1]
-    if translation.startswith("'") and translation.endswith("'"):
-        translation = translation[1:-1]
+    if len(translation) > 2:
+        if translation.startswith('"') and translation.endswith('"'):
+            translation = translation[1:-1]
+        if translation.startswith("'") and translation.endswith("'"):
+            translation = translation[1:-1]
+        if translation.startswith('«') and translation.endswith('»'):
+            translation = translation[1:-1]
     
-    # Remove repetition from previous chunk if present
+    # ========== PHASE 5: Remove repetition from previous chunk ==========
     if previous_chunk and len(previous_chunk) > 50:
-        # Get last 100 chars of previous chunk
-        prev_end = previous_chunk[-100:].strip()
-        if translation.startswith(prev_end):
-            translation = translation[len(prev_end):].strip()
+        prev_lines = previous_chunk.strip().split('\n')
+        
+        # Check if translation starts with content from previous chunk
+        for i in range(min(5, len(prev_lines))):
+            check_text = '\n'.join(prev_lines[-(i+1):]).strip()
+            if len(check_text) > 50 and translation.startswith(check_text):
+                translation = translation[len(check_text):].strip()
+                break
+        
+        # Check for partial sentence duplicates
+        if len(prev_lines) > 0:
+            last_prev_line = prev_lines[-1].strip()
+            if len(last_prev_line) > 30:
+                for check_len in range(len(last_prev_line), 30, -10):
+                    check_segment = last_prev_line[-check_len:]
+                    if translation.startswith(check_segment):
+                        translation = translation[len(check_segment):].strip()
+                        break
     
-    return translation
+    return translation.strip()
+
+
+def clean_for_epub(text: str) -> str:
+    """
+    Clean text specifically for EPUB output.
+    Removes problematic characters and ensures valid XHTML content.
+    
+    Args:
+        text: Text to clean
+    
+    Returns:
+        EPUB-safe text
+    """
+    if not text:
+        return ""
+    
+    # Remove null characters and other control characters (except newlines/tabs)
+    text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', text)
+    
+    # Remove any remaining thinking tags
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<think>.*$', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove instruction artifacts
+    instruction_patterns = [
+        r'IMPORTANT:.*?(?:\n|$)',
+        r'IMPORTANTE:.*?(?:\n|$)',
+        r'REQUIREMENTS:.*?(?:\n\n|\Z)',
+        r'REQUISITOS:.*?(?:\n\n|\Z)',
+        r'\[⚠️[^\]]*\]',
+        r'Note:.*?(?:\n|$)',
+        r'Nota:.*?(?:\n|$)',
+    ]
+    
+    for pattern in instruction_patterns:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.MULTILINE)
+    
+    # Escape special XML characters (for XHTML compatibility)
+    # But preserve already-escaped entities
+    text = re.sub(r'&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)', '&amp;', text)
+    
+    # Ensure proper paragraph separation
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
+
+
+def preserve_formatting(original: str, translated: str) -> str:
+    """
+    Attempt to preserve the formatting structure of the original text
+    in the translated version.
+    
+    Args:
+        original: Original text with formatting
+        translated: Translated text
+    
+    Returns:
+        Translated text with preserved formatting
+    """
+    # Count leading/trailing whitespace in original
+    leading_spaces = len(original) - len(original.lstrip())
+    trailing_spaces = len(original) - len(original.rstrip())
+    
+    # Preserve leading newlines
+    leading_newlines = 0
+    for char in original:
+        if char == '\n':
+            leading_newlines += 1
+        else:
+            break
+    
+    # Apply formatting
+    result = translated.strip()
+    if leading_newlines > 0:
+        result = '\n' * leading_newlines + result
+    if leading_spaces > leading_newlines:
+        result = ' ' * (leading_spaces - leading_newlines) + result
+    if trailing_spaces > 0:
+        result = result + ' ' * trailing_spaces
+    
+    return result
 
 
 def extract_proper_nouns(text: str) -> List[str]:

@@ -70,7 +70,7 @@ class BookTranslator:
         if previous_chunk:
             context_preview = previous_chunk[-200:] if len(previous_chunk) > 200 else previous_chunk
             context_section = f"""
-CONTEXT (previous translation for continuity):
+CONTEXT (for continuity only - do NOT include in output):
 {context_preview}
 ---
 """
@@ -81,18 +81,20 @@ CONTEXT (previous translation for continuity):
         
         return f"""You are a professional literary translator. Translate the following {source_lang} text to {target_lang}.
 
-GENRE: {genre}
-
-REQUIREMENTS:
-- Maintain the author's style, tone, and voice
-- Preserve paragraph structure and formatting
-- Keep proper nouns consistent
-- Ensure natural, fluent {target_lang}
+CRITICAL RULES:
+1. Output ONLY the translated text - nothing else
+2. PRESERVE all original formatting: paragraphs, line breaks, dialogue formatting, indentation
+3. Do NOT add notes, explanations, comments, or headers
+4. Do NOT repeat the prompt or instructions
+5. Do NOT include "Translation:", "Here is:", or similar prefixes
+6. Do NOT add [brackets] or markers of any kind
+7. Maintain the author's style, tone, and voice exactly
+8. Keep proper nouns and names consistent
 {terminology_section}{context_section}
 TEXT TO TRANSLATE:
 {text}
 
-IMPORTANT: Return ONLY the translation, no explanations or notes."""
+OUTPUT (translated text only, preserving all formatting):"""
     
     def _build_stage2_prompt(
         self,
@@ -105,22 +107,22 @@ IMPORTANT: Return ONLY the translation, no explanations or notes."""
         """Build prompt for stage 2 (reflection and improvement)."""
         return f"""You are a professional literary editor. Review and improve this {target_lang} translation.
 
-GENRE: {genre}
-
 ORIGINAL ({source_lang}):
 {original}
 
 DRAFT TRANSLATION ({target_lang}):
 {draft}
 
-REVIEW CRITERIA:
-1. Accuracy - Does it convey the original meaning?
-2. Fluency - Does it read naturally in {target_lang}?
-3. Style - Does it preserve the author's voice?
-4. Consistency - Are terms and names consistent?
+TASK: Review for accuracy, fluency, style preservation, and consistency.
 
-Provide the IMPROVED translation only. If the draft is good, return it unchanged.
-Return ONLY the final translation, no explanations."""
+CRITICAL RULES:
+1. Output ONLY the improved translated text - nothing else
+2. PRESERVE all original formatting: paragraphs, line breaks, dialogue formatting
+3. Do NOT add notes, explanations, or comments
+4. Do NOT include prefixes like "Improved translation:" or similar
+5. If the draft is already good, return it unchanged
+
+OUTPUT (final translation only):"""
     
     def _translate_chunk_stage1(
         self,

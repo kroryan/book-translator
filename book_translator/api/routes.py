@@ -21,6 +21,7 @@ from book_translator.database.repositories import (
 )
 from book_translator.utils.validators import validate_file, validate_language, validate_model_name
 from book_translator.utils.logging import get_logger, debug_print
+from book_translator.utils.text_processing import clean_for_epub
 
 
 def create_translation_blueprint() -> Blueprint:
@@ -102,10 +103,11 @@ def create_translation_blueprint() -> Blueprint:
                         final_result = progress
                     
                     if final_result and final_result.translated_text:
-                        # Save translated file
+                        # Clean and save translated file
+                        cleaned_text = clean_for_epub(final_result.translated_text)
                         output_filename = f"{Path(filename).stem}_{target_lang}.txt"
                         output_path = config.paths.translations / output_filename
-                        output_path.write_text(final_result.translated_text, encoding='utf-8')
+                        output_path.write_text(cleaned_text, encoding='utf-8')
                         
                         processing_time = time.time() - start_time
                         repo.mark_completed(

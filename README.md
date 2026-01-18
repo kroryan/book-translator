@@ -37,7 +37,7 @@ ollama pull gpt-oss:20b
 
 # Or use other models:
 # ollama pull llama3.2
-# ollama pull qwen2.5
+# ollama pull qwen3
 # ollama pull gemma3:12b
 # ollama pull phi3
 ```
