@@ -7,7 +7,6 @@ __pycache__/
 env/
 build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -23,6 +22,7 @@ wheels/
 
 # Virtual Environment
 venv/
+venv_build/
 ENV/
 .env
 
@@ -35,6 +35,7 @@ translations.db
 cache.db
 *.db
 *.sqlite3
+test_*.db
 
 # IDE
 .idea/
@@ -48,6 +49,21 @@ cache.db
 *.log
 logs/*
 !logs/.gitkeep
+
+# Build artifacts
+dist/
+build/
+*.spec.bak
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# OS
+Thumbs.db
+.DS_Store
 
 # Temporary files
 nltk_data/
@@ -63,3 +79,5 @@ venv_build/
 # Keep spec files (they are configuration)
 !book_translator.spec
 !book_translator_onefile.spec
+# Backup of old code
+old_code_backup/

@@ -18,12 +18,14 @@ spec_dir = os.path.dirname(os.path.abspath(SPEC))
 
 # Main script analysis
 a = Analysis(
-    ['app_desktop.py'],
+    ['run.py'],
     pathex=[spec_dir],
     binaries=[],
     datas=[
         # Include static files (frontend)
         ('static', 'static'),
+        # Include book_translator package
+        ('book_translator', 'book_translator'),
         # Include necessary folders (will be created empty)
         ('uploads', 'uploads'),
         ('translations', 'translations'),
@@ -47,6 +49,30 @@ a = Analysis(
         'itsdangerous',
         'click',
         'flaskwebgui',
+        'book_translator',
+        'book_translator.app',
+        'book_translator.config',
+        'book_translator.config.settings',
+        'book_translator.config.constants',
+        'book_translator.models',
+        'book_translator.models.translation',
+        'book_translator.models.schemas',
+        'book_translator.utils',
+        'book_translator.utils.language_detection',
+        'book_translator.utils.text_processing',
+        'book_translator.utils.validators',
+        'book_translator.utils.logging',
+        'book_translator.services',
+        'book_translator.services.ollama_client',
+        'book_translator.services.cache_service',
+        'book_translator.services.terminology',
+        'book_translator.services.translator',
+        'book_translator.database',
+        'book_translator.database.connection',
+        'book_translator.database.repositories',
+        'book_translator.api',
+        'book_translator.api.routes',
+        'book_translator.api.middleware',
     ],
     hookspath=[],
     hooksconfig={},

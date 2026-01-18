@@ -1,42 +1,43 @@
+#!/usr/bin/env python3
 """
-Book Translator Desktop Application
-====================================
-This file wraps the Flask application to run as a desktop app.
-Includes system tray support to keep the server running in background.
-"""
+Book Translator - Desktop Application
+======================================
+Launch the Book Translator as a desktop app with system tray support.
 
+Usage:
+    python run.py
+    python -m book_translator
+"""
 import sys
 import os
-import subprocess
+import threading
+import time
+import webbrowser
+from pathlib import Path
+
+# Add package to path if running directly
+package_dir = Path(__file__).parent
+if str(package_dir) not in sys.path:
+    sys.path.insert(0, str(package_dir))
 
 # Determine if we're running as a packaged .exe
 if getattr(sys, 'frozen', False):
-    # Running as packaged .exe (PyInstaller)
     BUNDLE_DIR = sys._MEIPASS
     APP_DIR = os.path.dirname(sys.executable)
 else:
-    # Running as a normal Python script
-    BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BUNDLE_DIR = str(package_dir)
     APP_DIR = BUNDLE_DIR
 
-# Change to the application directory
-os.chdir(APP_DIR)
-
-# Create necessary folders if they don't exist
-for folder in ['uploads', 'translations', 'logs']:
-    folder_path = os.path.join(APP_DIR, folder)
-    os.makedirs(folder_path, exist_ok=True)
-
-# Configure paths for translator.py
+# Set environment for config
 os.environ['BOOK_TRANSLATOR_APP_DIR'] = APP_DIR
 os.environ['BOOK_TRANSLATOR_BUNDLE_DIR'] = BUNDLE_DIR
 
-# Add directories to path
-sys.path.insert(0, APP_DIR)
-sys.path.insert(0, BUNDLE_DIR)
+# Change to app directory
+os.chdir(APP_DIR)
 
-# Import the Flask application
-from translator import app, VERBOSE_DEBUG, Colors
+# Create necessary folders
+for folder in ['uploads', 'translations', 'logs']:
+    os.makedirs(os.path.join(APP_DIR, folder), exist_ok=True)
 
 # Import pystray for system tray
 try:
@@ -45,11 +46,15 @@ try:
     HAS_PYSTRAY = True
 except ImportError:
     HAS_PYSTRAY = False
-    print("pystray not installed, tray mode disabled")
 
-import webbrowser
-import threading
-import time
+# Colors for terminal output
+class Colors:
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    CYAN = '\033[96m'
 
 # Global variables
 flask_thread = None
@@ -71,73 +76,46 @@ def check_ollama():
 def print_banner():
     """Display startup banner"""
     print(f"\n{Colors.CYAN}{'='*60}{Colors.RESET}")
-    print(f"{Colors.BOLD}{Colors.GREEN}  📚 BOOK TRANSLATOR - Desktop Edition{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.GREEN}  📚 BOOK TRANSLATOR - Desktop Edition v2.0{Colors.RESET}")
     print(f"{Colors.CYAN}{'='*60}{Colors.RESET}")
-    print(f"  Version: 1.2.0 (Tray Mode)")
     print(f"  Server: {APP_URL}")
     print(f"  Working Directory: {os.getcwd()}")
     print(f"{Colors.CYAN}{'='*60}{Colors.RESET}\n")
 
 
-def create_app_icon():
-    """Create a proper icon for the application"""
-    # Create a 256x256 image with transparency
-    size = 256
+def create_tray_icon_image():
+    """Create icon for the system tray"""
+    size = 64
     image = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     
-    # Draw a book shape
-    # Book cover (blue)
-    draw.rounded_rectangle([20, 20, 236, 236], radius=20, fill=(41, 128, 185, 255))
+    # Book shape (blue background)
+    draw.rounded_rectangle([4, 4, 60, 60], radius=8, fill=(41, 128, 185, 255))
     
-    # Inner cover highlight
-    draw.rounded_rectangle([30, 30, 226, 226], radius=15, fill=(52, 152, 219, 255))
+    # Inner area (lighter blue)
+    draw.rounded_rectangle([8, 8, 56, 56], radius=6, fill=(52, 152, 219, 255))
     
-    # Pages (white/cream)
-    draw.rounded_rectangle([50, 40, 220, 216], radius=10, fill=(253, 253, 253, 255))
+    # Pages (white)
+    draw.rounded_rectangle([14, 12, 52, 52], radius=4, fill=(255, 255, 255, 255))
     
-    # Book spine (darker blue)
-    draw.rounded_rectangle([20, 20, 60, 236], radius=10, fill=(31, 97, 141, 255))
+    # Spine (darker blue)
+    draw.rounded_rectangle([4, 4, 16, 60], radius=4, fill=(31, 97, 141, 255))
     
-    # Text lines on pages
-    line_color = (189, 195, 199, 255)
-    y_positions = [70, 100, 130, 160, 190]
-    for y in y_positions:
-        width = 140 if y != 190 else 100
-        draw.rounded_rectangle([75, y, 75 + width, y + 12], radius=3, fill=line_color)
-    
-    # Translation arrow symbol (green)
-    draw.polygon([
-        (160, 85), (200, 128), (160, 171),
-        (160, 145), (120, 145), (120, 111), (160, 111)
-    ], fill=(46, 204, 113, 255))
+    # Text lines
+    for y in [20, 30, 40]:
+        draw.rounded_rectangle([20, y, 48, y + 4], radius=2, fill=(189, 195, 199, 255))
     
     return image
 
 
-def create_tray_icon_image():
-    """Create a smaller icon for the system tray"""
-    icon = create_app_icon()
-    return icon.resize((64, 64), Image.Resampling.LANCZOS)
-
-
-def save_app_icon():
-    """Save the application icon as ICO file"""
-    icon_path = os.path.join(APP_DIR, 'app_icon.ico')
-    try:
-        icon = create_app_icon()
-        # Save with multiple sizes for ICO
-        icon.save(icon_path, format='ICO', sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-        print(f"{Colors.GREEN}✓ Application icon saved: {icon_path}{Colors.RESET}")
-        return icon_path
-    except Exception as e:
-        print(f"{Colors.YELLOW}⚠ Could not save icon: {e}{Colors.RESET}")
-        return None
-
-
 def start_flask_server():
     """Start Flask server in a separate thread"""
+    from book_translator import run_server
     print(f"{Colors.GREEN}🚀 Starting Flask server on port {server_port}...{Colors.RESET}")
+    
+    # Import and run Flask app
+    from book_translator.app import create_app
+    app = create_app()
     app.run(host='127.0.0.1', port=server_port, debug=False, use_reloader=False, threaded=True)
 
 
@@ -146,7 +124,6 @@ def open_app_window(icon=None, item=None):
     print(f"{Colors.CYAN}🌐 Opening application in browser...{Colors.RESET}")
     try:
         webbrowser.open(APP_URL)
-        print(f"{Colors.GREEN}✓ Browser opened successfully{Colors.RESET}")
     except Exception as e:
         print(f"{Colors.RED}✗ Could not open browser: {e}{Colors.RESET}")
 
@@ -180,16 +157,13 @@ def run_with_tray():
     print(f"{Colors.CYAN}   Close browser tab anytime - reopen from tray icon.{Colors.RESET}")
     print(f"{Colors.YELLOW}   To fully quit: right-click tray icon → Quit Completely{Colors.RESET}\n")
     
-    # Save the application icon
-    save_app_icon()
-    
     # Start Flask server in background thread
     flask_thread = threading.Thread(target=start_flask_server, daemon=True)
     flask_thread.start()
     
     # Give server time to start
     print(f"{Colors.YELLOW}⏳ Starting server...{Colors.RESET}")
-    time.sleep(3)
+    time.sleep(2)
     
     # Open browser window automatically
     print(f"{Colors.GREEN}✓ Server started!{Colors.RESET}")
@@ -219,6 +193,8 @@ def run_with_tray():
 
 def run_simple():
     """Run without tray (fallback)"""
+    from book_translator.app import create_app
+    
     print(f"{Colors.GREEN}🚀 Starting Flask server...{Colors.RESET}")
     print(f"{Colors.CYAN}   URL: {APP_URL}{Colors.RESET}")
     print(f"\n{Colors.RED}   Press Ctrl+C to close{Colors.RESET}\n")
@@ -228,6 +204,8 @@ def run_simple():
         webbrowser.open(APP_URL)
     
     threading.Thread(target=open_browser, daemon=True).start()
+    
+    app = create_app()
     app.run(host='127.0.0.1', port=server_port, debug=False, use_reloader=False)
 
 
@@ -248,8 +226,10 @@ def main():
     if HAS_PYSTRAY:
         run_with_tray()
     else:
+        print(f"{Colors.YELLOW}⚠ pystray not installed, running without tray{Colors.RESET}")
         run_simple()
 
 
 if __name__ == '__main__':
     main()
+
