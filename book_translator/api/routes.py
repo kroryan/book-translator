@@ -320,3 +320,49 @@ def create_files_blueprint() -> Blueprint:
         return jsonify({'languages': SUPPORTED_LANGUAGES})
     
     return bp
+
+
+def create_logs_blueprint() -> Blueprint:
+    """Create logs routes blueprint for frontend console panel."""
+    from book_translator.utils.logging import log_buffer
+    
+    bp = Blueprint('logs', __name__)
+    
+    @bp.route('/logs', methods=['GET'])
+    def get_logs():
+        """Get logs from in-memory buffer for the frontend console panel."""
+        since_id = request.args.get('since', 0, type=int)
+        if since_id > 0:
+            logs = log_buffer.get_since(since_id)
+        else:
+            logs = log_buffer.get_all()
+        return jsonify({'logs': logs})
+    
+    @bp.route('/logs/stream')
+    def stream_logs():
+        """Stream logs in real-time using Server-Sent Events."""
+        def generate():
+            last_id = 0
+            while True:
+                logs = log_buffer.get_since(last_id)
+                for log in logs:
+                    last_id = log['id']
+                    yield f"data: {json.dumps(log)}\n\n"
+                time.sleep(0.5)
+        
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            }
+        )
+    
+    @bp.route('/logs/clear', methods=['POST'])
+    def clear_logs():
+        """Clear the log buffer."""
+        log_buffer.clear()
+        return jsonify({'message': 'Logs cleared'})
+    
+    return bp

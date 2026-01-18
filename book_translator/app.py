@@ -13,7 +13,8 @@ from book_translator.api.routes import (
     create_translation_blueprint,
     create_models_blueprint,
     create_health_blueprint,
-    create_files_blueprint
+    create_files_blueprint,
+    create_logs_blueprint
 )
 from book_translator.api.middleware import add_rate_limit_headers
 from book_translator.utils.logging import get_logger, debug_print
@@ -63,6 +64,7 @@ def create_app(testing: bool = False) -> Flask:
     app.register_blueprint(create_models_blueprint())
     app.register_blueprint(create_health_blueprint())
     app.register_blueprint(create_files_blueprint())
+    app.register_blueprint(create_logs_blueprint())
     
     # Add middleware
     app.after_request(add_rate_limit_headers)
@@ -95,48 +97,6 @@ def create_app(testing: bool = False) -> Flask:
     @app.route('/')
     def index():
         return send_from_directory(config.paths.static_folder, 'index.html')
-    
-    @app.route('/logs')
-    def logs_page():
-        """Real-time logs page."""
-        from book_translator.utils.logging import get_logger
-        log_buffer = get_logger().log_buffer
-        logs = log_buffer.get_logs(100)
-        
-        html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Book Translator Logs</title>
-            <style>
-                body { font-family: monospace; background: #1a1a1a; color: #fff; padding: 20px; }
-                .log { margin: 2px 0; padding: 5px; border-radius: 3px; }
-                .log.DEBUG { color: #888; }
-                .log.INFO { color: #4a9eff; }
-                .log.WARNING { color: #ffaa00; }
-                .log.ERROR { color: #ff4444; }
-                h1 { color: #4a9eff; }
-            </style>
-        </head>
-        <body>
-            <h1>📋 Translation Logs</h1>
-            <div id="logs">
-        """
-        
-        for log in logs:
-            level = log.get('level', 'INFO')
-            html += f'<div class="log {level}">[{log.get("timestamp", "")}] [{level}] {log.get("message", "")}</div>'
-        
-        html += """
-            </div>
-            <script>
-                setTimeout(() => location.reload(), 5000);
-            </script>
-        </body>
-        </html>
-        """
-        
-        return html
     
     # Log startup
     logger = get_logger()
