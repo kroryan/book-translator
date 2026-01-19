@@ -1,0 +1,196 @@
+name: Book Translator CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  release:
+    types: [created]
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black isort mypy
+      
+      - name: Check formatting with Black
+        run: black --check book_translator/ tests/
+      
+      - name: Check import sorting
+        run: isort --check-only book_translator/ tests/
+      
+      - name: Lint with flake8
+        run: |
+          flake8 book_translator/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 book_translator/ tests/ --count --exit-zero --max-complexity=10 --max-line-length=100 --statistics
+
+  test:
+    name: Tests
+    runs-on: ${{ matrix.os }}
+    needs: lint
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-mock
+      
+      - name: Run tests
+        env:
+          BOOK_TRANSLATOR_ENV: testing
+          VERBOSE_DEBUG: "false"
+        run: |
+          pytest tests/ -v --cov=book_translator --cov-report=xml --cov-report=term-missing
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety
+      
+      - name: Run Bandit security scan
+        run: bandit -r book_translator/ -ll --format json -o bandit-report.json || true
+      
+      - name: Check dependencies for vulnerabilities
+        run: safety check -r requirements.txt --output json > safety-report.json || true
+      
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            safety-report.json
+
+  build-executable:
+    name: Build Executable
+    runs-on: windows-latest
+    needs: test
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Build executable
+        run: |
+          pyinstaller --clean book_translator.spec
+      
+      - name: Test executable exists
+        run: |
+          if (Test-Path "dist/BookTranslator.exe") {
+            Write-Host "✅ Executable built successfully"
+          } else {
+            Write-Error "❌ Executable not found"
+            exit 1
+          }
+        shell: pwsh
+      
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: BookTranslator-Windows
+          path: dist/BookTranslator.exe
+          retention-days: 30
+
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: book-translator:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build-executable, build-docker]
+    if: github.event_name == 'release'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: BookTranslator-Windows
+          path: artifacts/
+      
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/BookTranslator.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

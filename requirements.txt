@@ -1,13 +1,33 @@
-# Core dependencies
-Flask==3.0.0
-Flask-CORS==4.0.0
-requests==2.31.0
-psutil==5.9.6
+# ===========================================
+# Book Translator - Python Dependencies
+# ===========================================
+# Install with: pip install -r requirements.txt
+# For dev tools: pip install -r requirements.txt[dev]
 
-# Production server
-gunicorn==21.2.0
+# Core dependencies (pinned versions for reproducibility)
+Flask==3.1.2
+Flask-CORS==6.0.2
+requests==2.32.3
+psutil==5.9.8
+Werkzeug==3.1.3
 
-# Development tools (optional)
-pytest==7.4.3
-black==23.12.1
-flake8==6.1.0
+# System tray support (optional for desktop mode)
+pystray==0.19.5
+Pillow==10.4.0
+
+# Desktop app (optional, for native window mode)
+flaskwebgui==1.0.6
+
+# Build tools (for creating .exe)
+pyinstaller==6.11.1
+
+# Production server (for Linux/Docker deployment)
+gunicorn==23.0.0
+
+# Development/Testing tools
+pytest==8.3.4
+pytest-cov==6.0.0
+black==24.10.0
+flake8==7.1.1
+mypy==1.13.0
+python-dotenv==1.0.1

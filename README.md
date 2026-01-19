@@ -1,3 +1,5 @@
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kroryan/book-translator)
+
 <div align="center">
   <img src="https://github.com/user-attachments/assets/f62278a1-ec33-4096-aa13-a855dd7bda4f" alt="Logo">
   <br> 
@@ -8,10 +10,10 @@
   <p><strong>Two-step process. For better quality.</strong></p>
 </div>
   <p>The tool processes text files using Ollama LLM models with a two-stage approach: primary translation followed by AI self-reflection and refinement for better results. Suitable for translators, publishers, authors, researchers and content creators who need to translate large text documents.</p>
-Support for multiple languages including English, Russian, Spanish, French, German, Italian, Portuguese, Chinese, and Japanese.  Genre-specific modes (fiction, technical, academic, business, poetry), real-time translation progress tracking for both stages, translation history and status monitoring, automatic error recovery and retry mechanisms, and multi-format export (TXT, PDF, EPUB).  <br>   <br> 
+Support for multiple languages including English, Russian, Spanish, French, German, Italian, Portuguese, Chinese, Japanese, and Korean.  Genre-specific modes (fiction, technical, academic, business, poetry), real-time translation progress tracking for both stages, translation history and status monitoring, automatic error recovery and retry mechanisms, and multi-format export (TXT, PDF, EPUB).  <br>   <br> 
 
 <img width="1191" height="889" alt="Screenshot 2025-10-04 at 12 54 17" src="https://github.com/user-attachments/assets/35838c1c-26be-4594-a759-dbaa76a9494f" />
-
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kroryan/book-translator)
 ## Installation
 
 1. **Install Ollama**
@@ -37,14 +39,28 @@ ollama pull gpt-oss:20b
 
 # Or use other models:
 # ollama pull llama3.2
-# ollama pull qwen2.5
+# ollama pull qwen3
 # ollama pull gemma3:12b
 # ollama pull phi3
 ```
 
 5. **Start the application**
 
-**Option 1: Quick Launch (macOS)**
+**Option 1: Desktop App (Windows .exe)**
+
+Download `BookTranslator.exe` from the Releases page or build it yourself:
+```bash
+pip install pyinstaller pystray Pillow
+pyinstaller book_translator_onefile.spec
+# The .exe will be in dist/BookTranslator.exe
+```
+Features:
+- System tray icon for background operation
+- Server keeps running when you close the browser
+- Reopen anytime from the tray icon
+- Right-click tray icon → "Quit Completely" to exit
+
+**Option 2: Quick Launch (macOS)**
 ```bash
 ./Launch\ Book-Translator.command
 ```
@@ -54,7 +70,7 @@ This will automatically:
 - Open http://localhost:5001 in your browser
 - Clear translation cache
 
-**Option 2: Manual start**
+**Option 3: Manual start**
 ```bash
 python translator.py
 # Then open http://localhost:5001 in your browser
