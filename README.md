@@ -72,13 +72,13 @@ This will automatically:
 
 **Option 3: Manual start**
 ```bash
-python translator.py
+python run.py
 # Then open http://localhost:5001 in your browser
 ```
 
 ## Configuration
 
-Default settings in `translator.py`:
+Default settings in `run.py`:
 - Port: 5001
 - Chunk size: 1000 characters
 - Temperature varies by genre (0.3-0.8)
