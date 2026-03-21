@@ -10,14 +10,14 @@
 
 <p align="center">
   <a href="https://github.com/KazKozDev/book-translator/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/KazKozDev/book-translator/ci.yml?branch=main&label=CI&style=flat-square&labelColor=425548&color=6f9779" alt="CI status">
+    <img src="https://img.shields.io/github/actions/workflow/status/KazKozDev/book-translator/ci.yml?branch=main&label=CI&style=flat-square&labelColor=31566b&color=5f95b3" alt="CI status">
   </a>
   <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/KazKozDev/book-translator?style=flat-square&labelColor=5d6659&color=a1aa95" alt="MIT license">
+    <img src="https://img.shields.io/github/license/KazKozDev/book-translator?style=flat-square&labelColor=586779&color=9fb2c3" alt="MIT license">
   </a>
-  <img src="https://img.shields.io/badge/python-3.10%2B-7da06f?style=flat-square&labelColor=54684a" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/Ollama-local%20models-5e877f?style=flat-square&labelColor=3f645d" alt="Ollama local models">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Web-b3a783?style=flat-square&labelColor=7e7558" alt="Platforms">
+  <img src="https://img.shields.io/badge/python-3.10%2B-6d8fa8?style=flat-square&labelColor=476276" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/Ollama-local%20models-5f9ca5?style=flat-square&labelColor=3d6f79" alt="Ollama local models">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Web-8faec9?style=flat-square&labelColor=5a7891" alt="Platforms">
 </p>
 
 Book Translator provides a two-stage workflow for translating books and large documents: first it generates a draft translation, then it runs a second pass to improve fluency, consistency, and style. The project targets users who want a local-first interface, progress tracking, saved history, and downloadable output without building a custom prompt pipeline around Ollama.
