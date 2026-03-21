@@ -37,7 +37,7 @@ body:
     id: model
     attributes:
       label: Ollama model
-      placeholder: llama3.2 / qwen3 / etc.
+      placeholder: translategemma:12b / qwen3 / etc.
   - type: textarea
     id: logs
     attributes:

@@ -70,7 +70,7 @@ Long-document translation tends to fail at the workflow level before it fails at
 2. Pull an Ollama model.
 
    ```bash
-   ollama pull llama3.2
+   ollama pull translategemma:12b
    ```
 
 3. Start the application.
