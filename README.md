@@ -1,4 +1,6 @@
-![Book Translator](banner.jpg)
+<p align="center">
+  <img src="logo.png" alt="Book Translator logo">
+</p>
 
 <h1 align="center">Book Translator</h1>
 
