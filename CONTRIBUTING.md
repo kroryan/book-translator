@@ -4,7 +4,7 @@ Thanks for contributing to Book Translator.
 
 ## Before You Start
 
-- Read the [README](/Users/artemk/projects/book-trans/README.md) and make sure the project runs locally.
+- Read the [README](README.md) and make sure the project runs locally.
 - Use Python 3.10 or newer.
 - Make sure [Ollama](https://ollama.com/) is installed if your change depends on live model execution.
 
@@ -69,4 +69,4 @@ Feature requests are welcome, but they should describe:
 
 ## Questions
 
-Use GitHub issues for bugs and feature requests. For security issues, follow [SECURITY.md](/Users/artemk/projects/book-trans/SECURITY.md).
+Use GitHub issues for bugs and feature requests. For security issues, follow [SECURITY.md](SECURITY.md).

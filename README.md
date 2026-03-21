@@ -36,7 +36,7 @@ Book Translator provides a two-stage workflow for translating books and large do
 
 ## Overview
 
-The repository ships a modular Python application centered around the [`book_translator`](/Users/artemk/projects/book-trans/book_translator) package. A Flask backend handles uploads, translation jobs, Ollama integration, metrics, and downloads, while the static frontend provides the browser UI. The current `main` branch includes tests, Docker support, Windows packaging files, and a desktop launcher via [`run.py`](/Users/artemk/projects/book-trans/run.py).
+The repository ships a modular Python application centered around the [`book_translator`](book_translator) package. A Flask backend handles uploads, translation jobs, Ollama integration, metrics, and downloads, while the static frontend provides the browser UI. The current `main` branch includes tests, Docker support, Windows packaging files, and a desktop launcher via [`run.py`](run.py).
 
 ## Motivation
 
@@ -44,12 +44,12 @@ Long-document translation tends to fail at the workflow level before it fails at
 
 ## Architecture
 
-- [`run.py`](/Users/artemk/projects/book-trans/run.py) starts the local app, supports tray mode when optional desktop dependencies are installed, and opens the browser UI.
-- [`book_translator/app.py`](/Users/artemk/projects/book-trans/book_translator/app.py) builds the Flask app, registers blueprints, configures CORS, and serves the frontend.
-- [`book_translator/api/routes.py`](/Users/artemk/projects/book-trans/book_translator/api/routes.py) exposes translation, models, health, cache, download, and log endpoints.
-- [`book_translator/services/translator.py`](/Users/artemk/projects/book-trans/book_translator/services/translator.py) implements chunking, stage-one translation, stage-two refinement, and cache-aware execution.
-- [`book_translator/database`](/Users/artemk/projects/book-trans/book_translator/database) stores jobs and chunk metadata in SQLite.
-- [`tests`](/Users/artemk/projects/book-trans/tests) covers API endpoints, config, and core translation behavior.
+- [`run.py`](run.py) starts the local app, supports tray mode when optional desktop dependencies are installed, and opens the browser UI.
+- [`book_translator/app.py`](book_translator/app.py) builds the Flask app, registers blueprints, configures CORS, and serves the frontend.
+- [`book_translator/api/routes.py`](book_translator/api/routes.py) exposes translation, models, health, cache, download, and log endpoints.
+- [`book_translator/services/translator.py`](book_translator/services/translator.py) implements chunking, stage-one translation, stage-two refinement, and cache-aware execution.
+- [`book_translator/database`](book_translator/database) stores jobs and chunk metadata in SQLite.
+- [`tests`](tests) covers API endpoints, config, and core translation behavior.
 
 ## Requirements
 
