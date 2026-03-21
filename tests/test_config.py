@@ -3,20 +3,29 @@ Unit Tests for Configuration System
 ====================================
 Tests for the refactored book_translator configuration.
 """
-import pytest
+
 import os
 import sys
 
+import pytest
+
 # Setup test environment
-os.environ.setdefault('BOOK_TRANSLATOR_ENV', 'testing')
-os.environ.setdefault('VERBOSE_DEBUG', 'false')
+os.environ.setdefault("BOOK_TRANSLATOR_ENV", "testing")
+os.environ.setdefault("VERBOSE_DEBUG", "false")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from book_translator.config.settings import (
-    Config, ServerConfig, OllamaConfig, TranslationConfig,
-    CacheConfig, FileConfig, LoggingConfig,
-    _get_bool_env, _get_int_env, _get_float_env
+    CacheConfig,
+    Config,
+    FileConfig,
+    LoggingConfig,
+    OllamaConfig,
+    ServerConfig,
+    TranslationConfig,
+    _get_bool_env,
+    _get_float_env,
+    _get_int_env,
 )
 
 
@@ -85,7 +94,7 @@ class TestOllamaConfig:
 
     def test_api_url_property(self):
         config = OllamaConfig()
-        assert '/api/generate' in config.api_url
+        assert "/api/generate" in config.api_url
 
 
 class TestTranslationConfig:
@@ -140,14 +149,14 @@ class TestMainConfig:
 
     def test_all_sections_present(self):
         config = Config()
-        assert hasattr(config, 'server')
-        assert hasattr(config, 'ollama')
-        assert hasattr(config, 'translation')
-        assert hasattr(config, 'cache')
-        assert hasattr(config, 'file')
-        assert hasattr(config, 'logging')
-        assert hasattr(config, 'security')
-        assert hasattr(config, 'paths')
+        assert hasattr(config, "server")
+        assert hasattr(config, "ollama")
+        assert hasattr(config, "translation")
+        assert hasattr(config, "cache")
+        assert hasattr(config, "file")
+        assert hasattr(config, "logging")
+        assert hasattr(config, "security")
+        assert hasattr(config, "paths")
 
     def test_paths_are_valid(self):
         config = Config()
@@ -156,5 +165,5 @@ class TestMainConfig:
         assert config.paths.static_folder is not None
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

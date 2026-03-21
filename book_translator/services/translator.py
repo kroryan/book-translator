@@ -3,25 +3,25 @@ Book Translator Service
 =======================
 Main translation service with two-stage translation approach.
 """
-import time
 import hashlib
-from typing import Generator, Optional, List, Dict
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import Dict, Generator, List, Optional
 
 from book_translator.config import config
 from book_translator.config.constants import TranslationStatus
 from book_translator.models.translation import TranslationProgress
-from book_translator.services.ollama_client import OllamaClient, get_ollama_client
 from book_translator.services.cache_service import TranslationCache, get_cache
+from book_translator.services.ollama_client import OllamaClient, get_ollama_client
 from book_translator.services.terminology import TerminologyManager
-from book_translator.utils.logging import get_logger, debug_print
-from book_translator.utils.text_processing import (
-    split_into_chunks,
-    clean_translation_response,
-    normalize_text
-)
 from book_translator.utils.language_detection import is_likely_translated
+from book_translator.utils.logging import debug_print, get_logger
+from book_translator.utils.text_processing import (
+    clean_translation_response,
+    normalize_text,
+    split_into_chunks,
+)
 
 
 @dataclass

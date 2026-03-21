@@ -3,86 +3,85 @@ Database Connection Manager
 ===========================
 Handles SQLite database connections with proper context management.
 """
+
 import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Generator
+from typing import Generator, Optional
 
 from book_translator.config import config
-from book_translator.utils.logging import get_logger, debug_print
+from book_translator.utils.logging import debug_print, get_logger
 
 
 class Database:
     """
     Thread-safe SQLite database manager.
-    
+
     Uses connection pooling and context managers for safe access.
     """
-    
-    _instance: Optional['Database'] = None
+
+    _instance: Optional["Database"] = None
     _lock = threading.Lock()
-    
+
     def __init__(self, db_path: Path = None):
         self.db_path = db_path or Path(config.paths.db_path)
         self.logger = get_logger().db_logger
         self._local = threading.local()
         self._initialized = False
-        
+
         # Ensure directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     @classmethod
-    def get_instance(cls, db_path: Path = None) -> 'Database':
+    def get_instance(cls, db_path: Path = None) -> "Database":
         """Get singleton instance."""
         with cls._lock:
             if cls._instance is None:
                 cls._instance = cls(db_path)
             return cls._instance
-    
+
     @property
     def connection(self) -> sqlite3.Connection:
         """Get thread-local connection."""
-        if not hasattr(self._local, 'connection') or self._local.connection is None:
+        if not hasattr(self._local, "connection") or self._local.connection is None:
             self._local.connection = self._create_connection()
         return self._local.connection
-    
+
     def _create_connection(self) -> sqlite3.Connection:
         """Create a new database connection."""
-        conn = sqlite3.connect(
-            str(self.db_path),
-            timeout=config.security.db_timeout
-        )
+        conn = sqlite3.connect(str(self.db_path), timeout=config.security.db_timeout)
         conn.row_factory = sqlite3.Row
-        
+
         # Enable WAL mode for better concurrency
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA cache_size=10000")
         conn.execute("PRAGMA foreign_keys=ON")
-        
+
         return conn
-    
+
     def initialize(self) -> None:
         """Initialize database schema."""
         if self._initialized:
             return
-        
+
         with self._lock:
             if self._initialized:
                 return
-            
+
             self._create_tables()
             self._ensure_schema_updates()
             self._create_indexes()
             self._initialized = True
-            
+
             self.logger.info(f"Database initialized: {self.db_path}")
-    
+
     def _create_tables(self) -> None:
         """Create database tables."""
         with self.connection:
-            self.connection.execute("""
+            self.connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS translations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     original_filename TEXT NOT NULL,
@@ -109,9 +108,11 @@ class Database:
                     ),
                     CONSTRAINT valid_progress CHECK (progress >= 0 AND progress <= 100)
                 )
-            """)
-            
-            self.connection.execute("""
+            """
+            )
+
+            self.connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS translation_chunks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     translation_id INTEGER NOT NULL,
@@ -123,7 +124,8 @@ class Database:
                     FOREIGN KEY (translation_id) REFERENCES translations(id) ON DELETE CASCADE,
                     UNIQUE(translation_id, chunk_index)
                 )
-            """)
+            """
+            )
 
     def _ensure_schema_updates(self) -> None:
         """Apply lightweight schema migrations for existing databases."""
@@ -136,30 +138,38 @@ class Database:
                 self.connection.execute(
                     "ALTER TABLE translations ADD COLUMN custom_instructions TEXT"
                 )
-    
+
     def _create_indexes(self) -> None:
         """Create database indexes for performance."""
         with self.connection:
             # Translations indexes
-            self.connection.execute("""
+            self.connection.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_translations_status 
                 ON translations(status)
-            """)
-            self.connection.execute("""
+            """
+            )
+            self.connection.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_translations_created_at 
                 ON translations(created_at DESC)
-            """)
-            self.connection.execute("""
+            """
+            )
+            self.connection.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_translations_filename 
                 ON translations(original_filename)
-            """)
-            
+            """
+            )
+
             # Chunks indexes
-            self.connection.execute("""
+            self.connection.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_chunks_translation_id 
                 ON translation_chunks(translation_id, chunk_index)
-            """)
-    
+            """
+            )
+
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Connection, None, None]:
         """Context manager for database transactions."""
@@ -171,12 +181,8 @@ class Database:
             conn.rollback()
             self.logger.error(f"Transaction rolled back: {e}")
             raise
-    
-    def execute(
-        self, 
-        query: str, 
-        params: tuple = None
-    ) -> sqlite3.Cursor:
+
+    def execute(self, query: str, params: tuple = None) -> sqlite3.Cursor:
         """Execute a query."""
         try:
             if params:
@@ -185,43 +191,31 @@ class Database:
         except sqlite3.Error as e:
             self.logger.error(f"Database error: {e}")
             raise
-    
-    def executemany(
-        self, 
-        query: str, 
-        params_list: list
-    ) -> sqlite3.Cursor:
+
+    def executemany(self, query: str, params_list: list) -> sqlite3.Cursor:
         """Execute a query with multiple parameter sets."""
         try:
             return self.connection.executemany(query, params_list)
         except sqlite3.Error as e:
             self.logger.error(f"Database error: {e}")
             raise
-    
-    def fetchone(
-        self, 
-        query: str, 
-        params: tuple = None
-    ) -> Optional[sqlite3.Row]:
+
+    def fetchone(self, query: str, params: tuple = None) -> Optional[sqlite3.Row]:
         """Execute query and fetch one result."""
         cursor = self.execute(query, params)
         return cursor.fetchone()
-    
-    def fetchall(
-        self, 
-        query: str, 
-        params: tuple = None
-    ) -> list:
+
+    def fetchall(self, query: str, params: tuple = None) -> list:
         """Execute query and fetch all results."""
         cursor = self.execute(query, params)
         return cursor.fetchall()
-    
+
     def close(self) -> None:
         """Close thread-local connection."""
-        if hasattr(self._local, 'connection') and self._local.connection:
+        if hasattr(self._local, "connection") and self._local.connection:
             self._local.connection.close()
             self._local.connection = None
-    
+
     def vacuum(self) -> None:
         """Optimize database by running VACUUM."""
         self.connection.execute("VACUUM")
