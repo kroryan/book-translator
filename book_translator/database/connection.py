@@ -73,6 +73,7 @@ class Database:
                 return
             
             self._create_tables()
+            self._ensure_schema_updates()
             self._create_indexes()
             self._initialized = True
             
@@ -93,6 +94,7 @@ class Database:
                     progress REAL DEFAULT 0,
                     stage TEXT DEFAULT 'waiting',
                     original_text TEXT,
+                    custom_instructions TEXT,
                     machine_translation TEXT,
                     translated_text TEXT,
                     error_message TEXT,
@@ -122,6 +124,18 @@ class Database:
                     UNIQUE(translation_id, chunk_index)
                 )
             """)
+
+    def _ensure_schema_updates(self) -> None:
+        """Apply lightweight schema migrations for existing databases."""
+        with self.connection:
+            columns = {
+                row["name"]
+                for row in self.connection.execute("PRAGMA table_info(translations)")
+            }
+            if "custom_instructions" not in columns:
+                self.connection.execute(
+                    "ALTER TABLE translations ADD COLUMN custom_instructions TEXT"
+                )
     
     def _create_indexes(self) -> None:
         """Create database indexes for performance."""

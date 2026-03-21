@@ -284,6 +284,34 @@ class TestCacheService:
                     os.remove(db_path)
                 except:
                     pass
+
+
+class TestTranslatorPrompts:
+    """Test prompt customization behavior."""
+
+    def test_stage1_prompt_includes_custom_instructions(self):
+        from book_translator.services.translator import BookTranslator
+
+        translator = BookTranslator(model_name='test-model')
+        prompt = translator._build_stage1_prompt(
+            "Hello world",
+            "en",
+            "fr",
+            genre="fiction",
+            custom_instructions='Translate "Order" as "Ordre". Keep a solemn tone.'
+        )
+
+        assert 'USER TRANSLATION INSTRUCTIONS' in prompt
+        assert 'Translate "Order" as "Ordre"' in prompt
+
+    def test_context_hash_changes_with_custom_instructions(self):
+        from book_translator.services.translator import BookTranslator
+
+        translator = BookTranslator(model_name='test-model')
+        hash_without = translator._get_context_hash("Previous chunk", "")
+        hash_with = translator._get_context_hash("Previous chunk", "Use formal tone")
+
+        assert hash_without != hash_with
     
     def test_cache_set_get(self):
         """Test cache set and get."""

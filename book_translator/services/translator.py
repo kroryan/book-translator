@@ -35,6 +35,13 @@ class ChunkResult:
     from_cache: bool = False
 
 
+def _normalize_custom_instructions(custom_instructions: str) -> str:
+    """Normalize user-provided translation instructions."""
+    if not custom_instructions:
+        return ""
+    return custom_instructions.strip()
+
+
 class BookTranslator:
     """
     Two-stage book translator.
@@ -63,7 +70,8 @@ class BookTranslator:
         source_lang: str,
         target_lang: str,
         previous_chunk: str = "",
-        genre: str = "general"
+        genre: str = "general",
+        custom_instructions: str = ""
     ) -> str:
         """Build prompt for stage 1 (primary translation)."""
         context_section = ""
@@ -78,6 +86,14 @@ CONTEXT (for continuity only - do NOT include in output):
         terminology_section = self.terminology.get_context_for_prompt()
         if terminology_section:
             terminology_section = f"\n{terminology_section}\n"
+
+        custom_instructions = _normalize_custom_instructions(custom_instructions)
+        instructions_section = ""
+        if custom_instructions:
+            instructions_section = f"""
+USER TRANSLATION INSTRUCTIONS:
+{custom_instructions}
+"""
         
         return f"""You are a professional literary translator. Translate the following {source_lang} text to {target_lang}.
 
@@ -90,7 +106,7 @@ CRITICAL RULES:
 6. Do NOT add [brackets] or markers of any kind
 7. Maintain the author's style, tone, and voice exactly
 8. Keep proper nouns and names consistent
-{terminology_section}{context_section}
+{terminology_section}{instructions_section}{context_section}
 TEXT TO TRANSLATE:
 {text}
 
@@ -102,9 +118,18 @@ OUTPUT (translated text only, preserving all formatting):"""
         draft: str,
         source_lang: str,
         target_lang: str,
-        genre: str = "general"
+        genre: str = "general",
+        custom_instructions: str = ""
     ) -> str:
         """Build prompt for stage 2 (reflection and improvement)."""
+        custom_instructions = _normalize_custom_instructions(custom_instructions)
+        instructions_section = ""
+        if custom_instructions:
+            instructions_section = f"""
+USER TRANSLATION INSTRUCTIONS:
+{custom_instructions}
+"""
+
         return f"""You are a professional literary editor. Review and improve this {target_lang} translation.
 
 ORIGINAL ({source_lang}):
@@ -114,6 +139,7 @@ DRAFT TRANSLATION ({target_lang}):
 {draft}
 
 TASK: Review for accuracy, fluency, style preservation, and consistency.
+{instructions_section}
 
 CRITICAL RULES:
 1. Output ONLY the improved translated text - nothing else
@@ -130,11 +156,12 @@ OUTPUT (final translation only):"""
         source_lang: str,
         target_lang: str,
         previous_chunk: str = "",
-        genre: str = "general"
+        genre: str = "general",
+        custom_instructions: str = ""
     ) -> str:
         """Translate a single chunk (stage 1)."""
         prompt = self._build_stage1_prompt(
-            chunk, source_lang, target_lang, previous_chunk, genre
+            chunk, source_lang, target_lang, previous_chunk, genre, custom_instructions
         )
 
         # Debug: Show prompt being sent
@@ -185,10 +212,13 @@ OUTPUT (final translation only):"""
         draft: str,
         source_lang: str,
         target_lang: str,
-        genre: str = "general"
+        genre: str = "general",
+        custom_instructions: str = ""
     ) -> str:
         """Improve a translation (stage 2)."""
-        prompt = self._build_stage2_prompt(original, draft, source_lang, target_lang, genre)
+        prompt = self._build_stage2_prompt(
+            original, draft, source_lang, target_lang, genre, custom_instructions
+        )
 
         # Debug: Show prompt being sent
         debug_print(f"[PROMPT S2] Length: {len(prompt)} chars", 'DEBUG', 'LLM')
@@ -231,11 +261,14 @@ OUTPUT (final translation only):"""
         # Fall back to draft if stage 2 fails
         return draft
     
-    def _get_context_hash(self, previous_chunk: str) -> str:
-        """Generate context hash for cache differentiation."""
-        if not previous_chunk:
+    def _get_context_hash(self, previous_chunk: str, custom_instructions: str = "") -> str:
+        """Generate cache context hash from continuity context and user instructions."""
+        hash_input = "\n".join(
+            part for part in [previous_chunk.strip(), _normalize_custom_instructions(custom_instructions)] if part
+        )
+        if not hash_input:
             return ""
-        return hashlib.sha256(previous_chunk.encode('utf-8')).hexdigest()[:config.cache.context_hash_length]
+        return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()[:config.cache.context_hash_length]
     
     def translate_text(
         self,
@@ -243,7 +276,8 @@ OUTPUT (final translation only):"""
         source_lang: str,
         target_lang: str,
         translation_id: int = None,
-        genre: str = "general"
+        genre: str = "general",
+        custom_instructions: str = ""
     ) -> Generator[TranslationProgress, None, None]:
         """
         Translate text using the two-stage approach.
@@ -285,7 +319,7 @@ OUTPUT (final translation only):"""
         for i, chunk in enumerate(chunks):
             chunk_num = i + 1
             previous_chunk = draft_translations[-1] if draft_translations else ""
-            context_hash = self._get_context_hash(previous_chunk)
+            context_hash = self._get_context_hash(previous_chunk, custom_instructions)
 
             debug_print(f"", 'INFO', 'TRANS')
             debug_print(f"{'='*60}", 'INFO', 'TRANS')
@@ -320,7 +354,7 @@ OUTPUT (final translation only):"""
 
             # Translate
             draft = self._translate_chunk_stage1(
-                chunk, source_lang, target_lang, previous_chunk, genre
+                chunk, source_lang, target_lang, previous_chunk, genre, custom_instructions
             )
 
             if not draft.startswith('[TRANSLATION_FAILED'):
@@ -360,7 +394,7 @@ OUTPUT (final translation only):"""
         for i, (chunk, draft) in enumerate(zip(chunks, draft_translations)):
             chunk_num = i + 1
             previous_final = final_translations[-1] if final_translations else ""
-            context_hash = self._get_context_hash(previous_final)
+            context_hash = self._get_context_hash(previous_final, custom_instructions)
 
             debug_print(f"", 'INFO', 'TRANS')
             debug_print(f"{'='*60}", 'INFO', 'TRANS')
@@ -401,7 +435,7 @@ OUTPUT (final translation only):"""
 
                 # Improve translation
                 final = self._translate_chunk_stage2(
-                    chunk, draft, source_lang, target_lang, genre
+                    chunk, draft, source_lang, target_lang, genre, custom_instructions
                 )
 
                 # Cache successful translation

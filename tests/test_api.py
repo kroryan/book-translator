@@ -98,7 +98,8 @@ class TestTranslationsEndpoint:
             target_language='es',
             model_name='test-model',
             original_text='Hello world',
-            file_size=11
+            file_size=11,
+            custom_instructions='Preserve the noir tone.'
         )
 
         response = client.post(f'/api/retry-translation/{translation_id}')
@@ -107,6 +108,7 @@ class TestTranslationsEndpoint:
         assert data['status'] == 'processing'
         assert 'id' in data
         mock_submit.assert_called_once()
+        assert mock_submit.call_args.kwargs['custom_instructions'] == 'Preserve the noir tone.'
 
 
 class TestTranslateEndpoint:
@@ -152,6 +154,22 @@ class TestTranslateEndpoint:
         resp_data = json.loads(response.data)
         assert 'Unsupported language' in resp_data.get('error', '')
 
+    @patch('book_translator.api.routes._submit_translation_job')
+    def test_custom_instructions_are_forwarded(self, mock_submit, client):
+        data = {
+            'file': (io.BytesIO(b'test content'), 'test.txt'),
+            'source_lang': 'en',
+            'target_lang': 'es',
+            'model': 'test-model',
+            'genre': 'fiction',
+            'custom_instructions': 'Translate "Order" as "Orden". Keep a solemn tone.'
+        }
+        response = client.post('/api/translate', data=data, content_type='multipart/form-data')
+        assert response.status_code == 200
+        mock_submit.assert_called_once()
+        assert mock_submit.call_args.kwargs['custom_instructions'] == (
+            'Translate "Order" as "Orden". Keep a solemn tone.'
+        )
 
 
 class TestLogsEndpoint:

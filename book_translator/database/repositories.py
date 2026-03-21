@@ -29,19 +29,20 @@ class TranslationRepository:
         target_language: str,
         model_name: str,
         original_text: str = None,
-        file_size: int = None
+        file_size: int = None,
+        custom_instructions: str = None
     ) -> int:
         """Create a new translation record."""
         with self.db.transaction() as conn:
             cursor = conn.execute("""
                 INSERT INTO translations (
                     original_filename, source_language, target_language,
-                    model_name, status, stage, original_text, file_size
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    model_name, status, stage, original_text, file_size, custom_instructions
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 original_filename, source_language, target_language,
                 model_name, TranslationStatus.PENDING.value, 'waiting',
-                original_text, file_size
+                original_text, file_size, custom_instructions
             ))
             
             translation_id = cursor.lastrowid

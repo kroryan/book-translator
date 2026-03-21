@@ -86,7 +86,8 @@ def _submit_translation_job(
     source_lang: str,
     target_lang: str,
     model_name: str,
-    genre: str = "unknown"
+    genre: str = "unknown",
+    custom_instructions: str = ""
 ) -> None:
     """Submit a translation job to the background executor."""
     logger = get_logger().api_logger
@@ -103,7 +104,12 @@ def _submit_translation_job(
                 return
 
             for progress in translator.translate_text(
-                content, source_lang, target_lang, translation_id, genre=genre
+                content,
+                source_lang,
+                target_lang,
+                translation_id,
+                genre=genre,
+                custom_instructions=custom_instructions
             ):
                 if cancel_event.is_set():
                     logger.info(f"Translation {translation_id} cancellation acknowledged")
@@ -183,6 +189,7 @@ def create_translation_blueprint() -> Blueprint:
             target_lang = request.form.get('target_lang', 'es')
             model_name = request.form.get('model', config.ollama.default_model)
             genre = request.form.get('genre', 'unknown')
+            custom_instructions = request.form.get('custom_instructions', '').strip()
             
             if source_lang != 'auto':
                 source_validation = validate_language(source_lang)
@@ -229,7 +236,8 @@ def create_translation_blueprint() -> Blueprint:
                 target_language=target_lang,
                 model_name=model_name,
                 original_text=content,
-                file_size=file_size
+                file_size=file_size,
+                custom_instructions=custom_instructions
             )
             
             logger.info(f"Translation {translation_id} created for {filename}")
@@ -240,7 +248,8 @@ def create_translation_blueprint() -> Blueprint:
                 source_lang=source_lang,
                 target_lang=target_lang,
                 model_name=model_name,
-                genre=genre
+                genre=genre,
+                custom_instructions=custom_instructions
             )
             
             return jsonify({
@@ -346,7 +355,8 @@ def create_translation_blueprint() -> Blueprint:
             target_language=translation['target_language'],
             model_name=translation['model_name'],
             original_text=translation['original_text'],
-            file_size=translation.get('file_size')
+            file_size=translation.get('file_size'),
+            custom_instructions=translation.get('custom_instructions')
         )
 
         _submit_translation_job(
@@ -356,7 +366,8 @@ def create_translation_blueprint() -> Blueprint:
             source_lang=translation['source_language'],
             target_lang=translation['target_language'],
             model_name=translation['model_name'],
-            genre='unknown'
+            genre='unknown',
+            custom_instructions=translation.get('custom_instructions', '')
         )
 
         return jsonify({
