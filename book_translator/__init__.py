@@ -16,4 +16,3 @@ __author__ = "Book Translator Team"
 from book_translator.app import create_app, run_server
 
 __all__ = ["create_app", "run_server", "__version__"]
-

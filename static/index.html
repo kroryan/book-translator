@@ -203,6 +203,43 @@
             display: none;
         }
 
+        .instructions-section {
+            margin-bottom: 25px;
+        }
+
+        .instructions-section label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .instructions-section textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: 12px 14px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            font-family: inherit;
+            line-height: 1.5;
+            resize: vertical;
+            background: white;
+            color: #333;
+        }
+
+        .instructions-section textarea:focus {
+            outline: none;
+            border-color: #2196f3;
+        }
+
+        .instructions-help {
+            margin-top: 8px;
+            font-size: 0.8rem;
+            color: #777;
+        }
+
         /* Button */
         .btn-translate {
             width: 100%;
@@ -652,6 +689,17 @@
                         <span id="selectedFileName"></span>
                     </div>
 
+                    <div class="instructions-section">
+                        <label for="customInstructions">Translation Instructions / Context</label>
+                        <textarea
+                            id="customInstructions"
+                            placeholder="Optional. Add style notes, glossary rules, character names, preferred translations, or context about the book."
+                        ></textarea>
+                        <div class="instructions-help">
+                            Example: "Keep a dark fantasy tone. Translate 'Sisterhood' as 'Confrerie'. Do not translate 'Dunwall Tower'."
+                        </div>
+                    </div>
+
                     <div class="upload-section" id="uploadSection">
                         <div class="upload-icon">☁️</div>
                         <h3>Click to upload or drag and drop</h3>
@@ -953,6 +1001,7 @@
             formData.append('target_lang', document.getElementById('targetLanguage').value);
             formData.append('model', document.getElementById('model').value);
             formData.append('genre', document.getElementById('genre').value);
+            formData.append('custom_instructions', document.getElementById('customInstructions').value.trim());
 
             const translateBtn = document.getElementById('translateBtn');
             const progressSection = document.getElementById('progressSection');

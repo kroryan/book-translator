@@ -3,21 +3,23 @@ Unit Tests for Translation Service
 ===================================
 Tests for the BookTranslator and language detection.
 """
-import pytest
-import sys
+
 import os
+import sys
+
+import pytest
 
 # Setup test environment
-os.environ.setdefault('BOOK_TRANSLATOR_ENV', 'testing')
-os.environ.setdefault('VERBOSE_DEBUG', 'false')
+os.environ.setdefault("BOOK_TRANSLATOR_ENV", "testing")
+os.environ.setdefault("VERBOSE_DEBUG", "false")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from book_translator.config.constants import LANGUAGE_MARKERS
 from book_translator.utils.language_detection import (
-    detect_language_markers,
     detect_language,
-    is_likely_translated
+    detect_language_markers,
+    is_likely_translated,
 )
 from book_translator.utils.text_processing import clean_translation_response
 
@@ -26,16 +28,16 @@ class TestLanguageMarkers:
     """Test language marker detection."""
 
     def test_english_markers_import(self):
-        assert 'en' in LANGUAGE_MARKERS
-        assert 'type' in LANGUAGE_MARKERS['en']
-        assert 'markers' in LANGUAGE_MARKERS['en']
+        assert "en" in LANGUAGE_MARKERS
+        assert "type" in LANGUAGE_MARKERS["en"]
+        assert "markers" in LANGUAGE_MARKERS["en"]
 
     def test_spanish_markers_import(self):
-        assert 'es' in LANGUAGE_MARKERS
-        assert len(LANGUAGE_MARKERS['es']['markers']) > 0
+        assert "es" in LANGUAGE_MARKERS
+        assert len(LANGUAGE_MARKERS["es"]["markers"]) > 0
 
     def test_supported_languages(self):
-        expected = ['en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko']
+        expected = ["en", "es", "fr", "de", "it", "pt", "ru", "zh", "ja", "ko"]
         for lang in expected:
             assert lang in LANGUAGE_MARKERS, f"Missing language: {lang}"
 
@@ -45,38 +47,40 @@ class TestDetectLanguageMarkers:
 
     def test_detect_english_text(self):
         text = "The quick brown fox jumps over the lazy dog. This is a test."
-        count, markers, ratio = detect_language_markers(text, 'en')
+        count, markers, ratio = detect_language_markers(text, "en")
         assert count > 0
         assert len(markers) > 0
 
     def test_detect_spanish_text(self):
-        text = "El rápido zorro marrón salta sobre el perro perezoso. Esta es una prueba."
-        count, markers, ratio = detect_language_markers(text, 'es')
+        text = (
+            "El rápido zorro marrón salta sobre el perro perezoso. Esta es una prueba."
+        )
+        count, markers, ratio = detect_language_markers(text, "es")
         assert count > 0
 
     def test_detect_no_markers(self):
         text = "12345 67890"  # Numbers only
-        count, markers, ratio = detect_language_markers(text, 'en')
+        count, markers, ratio = detect_language_markers(text, "en")
         assert count == 0
 
     def test_empty_text(self):
-        count, markers, ratio = detect_language_markers("", 'en')
+        count, markers, ratio = detect_language_markers("", "en")
         assert count == 0
         assert len(markers) == 0
 
     def test_chinese_character_detection(self):
         text = "这是一个测试。我们在学习中文。"
-        count, markers, ratio = detect_language_markers(text, 'zh')
+        count, markers, ratio = detect_language_markers(text, "zh")
         assert count > 0
 
     def test_japanese_detection(self):
         text = "これはテストです。日本語を勉強しています。"
-        count, markers, ratio = detect_language_markers(text, 'ja')
+        count, markers, ratio = detect_language_markers(text, "ja")
         assert count > 0
 
     def test_korean_detection(self):
         text = "이것은 테스트입니다. 한국어를 배우고 있습니다."
-        count, markers, ratio = detect_language_markers(text, 'ko')
+        count, markers, ratio = detect_language_markers(text, "ko")
         assert count > 0
 
 
@@ -86,18 +90,18 @@ class TestDetectLanguage:
     def test_detect_english(self):
         text = "The quick brown fox jumps over the lazy dog."
         lang, confidence = detect_language(text)
-        assert lang == 'en'
+        assert lang == "en"
 
     def test_detect_spanish(self):
         text = "El rápido zorro marrón salta sobre el perro perezoso."
         lang, confidence = detect_language(text)
-        assert lang == 'es'
+        assert lang == "es"
 
     def test_detect_french(self):
         # Use a longer text with more French markers for reliable detection
         text = "Le renard brun rapide saute par-dessus le chien paresseux. C'est une belle journée et il fait très beau. Je suis content de voir que tout va bien."
         lang, confidence = detect_language(text)
-        assert lang == 'fr'
+        assert lang == "fr"
 
 
 class TestTranslationValidation:
@@ -113,19 +117,11 @@ class TestTranslationValidation:
         assert result == False
 
     def test_same_language_passes(self):
-        result = is_likely_translated(
-            "Hello world",
-            "Hello world modified",
-            "en", "en"
-        )
+        result = is_likely_translated("Hello world", "Hello world modified", "en", "en")
         assert result == True
 
     def test_short_text_passes(self):
-        result = is_likely_translated(
-            "Hello",
-            "Hola",
-            "en", "es"
-        )
+        result = is_likely_translated("Hello", "Hola", "en", "es")
         assert result == True
 
     def test_good_translation_passes(self):
@@ -187,8 +183,8 @@ class TestBookTranslator:
     def test_initialization(self):
         from book_translator.services.translator import BookTranslator
 
-        translator = BookTranslator(model_name='test-model')
-        assert translator.model_name == 'test-model'
+        translator = BookTranslator(model_name="test-model")
+        assert translator.model_name == "test-model"
 
     def test_default_model(self):
         from book_translator.services.translator import BookTranslator
@@ -199,9 +195,9 @@ class TestBookTranslator:
     def test_has_cache(self):
         from book_translator.services.translator import BookTranslator
 
-        translator = BookTranslator(model_name='test-model')
+        translator = BookTranslator(model_name="test-model")
         assert translator.cache is not None
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

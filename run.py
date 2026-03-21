@@ -69,7 +69,7 @@ def check_ollama():
     try:
         response = requests.get("http://localhost:11434/api/tags", timeout=2)
         return response.status_code == 200
-    except:
+    except requests.RequestException:
         return False
 
 
@@ -110,7 +110,6 @@ def create_tray_icon_image():
 
 def start_flask_server():
     """Start Flask server in a separate thread"""
-    from book_translator import run_server
     print(f"{Colors.GREEN}🚀 Starting Flask server on port {server_port}...{Colors.RESET}")
     
     # Import and run Flask app
@@ -232,4 +231,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -1,16 +1,17 @@
 """
 Book Translator - Data Models
 """
+
+from book_translator.models.schemas import (
+    ModelInfo,
+    TranslateRequest,
+    TranslationResponse,
+)
 from book_translator.models.translation import (
     Translation,
     TranslationChunk,
+    TranslationProgress,
     TranslationResult,
-    TranslationProgress
-)
-from book_translator.models.schemas import (
-    TranslateRequest,
-    TranslationResponse,
-    ModelInfo
 )
 
 __all__ = [
@@ -20,5 +21,5 @@ __all__ = [
     "TranslationProgress",
     "TranslateRequest",
     "TranslationResponse",
-    "ModelInfo"
+    "ModelInfo",
 ]
