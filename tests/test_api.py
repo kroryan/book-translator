@@ -9,6 +9,7 @@ import os
 import json
 import tempfile
 import io
+from unittest.mock import patch
 
 # Setup test environment
 os.environ.setdefault('BOOK_TRANSLATOR_ENV', 'testing')
@@ -86,6 +87,27 @@ class TestTranslationsEndpoint:
         data = json.loads(response.data)
         assert isinstance(data, dict)
 
+    @patch('book_translator.api.routes._submit_translation_job')
+    def test_retry_translation_endpoint(self, mock_submit, client):
+        from book_translator.database.repositories import get_translation_repository
+
+        repo = get_translation_repository()
+        translation_id = repo.create(
+            original_filename='sample.txt',
+            source_language='en',
+            target_language='es',
+            model_name='test-model',
+            original_text='Hello world',
+            file_size=11
+        )
+
+        response = client.post(f'/api/retry-translation/{translation_id}')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['status'] == 'processing'
+        assert 'id' in data
+        mock_submit.assert_called_once()
+
 
 class TestTranslateEndpoint:
     """Test translation upload endpoint."""
@@ -118,6 +140,19 @@ class TestTranslateEndpoint:
         resp_data = json.loads(response.data)
         assert 'Invalid file type' in resp_data.get('error', '') or 'error' in resp_data
 
+    def test_invalid_source_language_returns_error(self, client):
+        data = {
+            'file': (io.BytesIO(b'test content'), 'test.txt'),
+            'source_lang': 'xx',
+            'target_lang': 'es',
+            'model': 'test-model'
+        }
+        response = client.post('/api/translate', data=data, content_type='multipart/form-data')
+        assert response.status_code == 400
+        resp_data = json.loads(response.data)
+        assert 'Unsupported language' in resp_data.get('error', '')
+
+
 
 class TestLogsEndpoint:
     """Test logs endpoint."""
@@ -141,6 +176,12 @@ class TestMetricsEndpoint:
         assert response.status_code == 200
         data = json.loads(response.data)
         assert isinstance(data, dict)
+        assert 'translation_metrics' in data
+        assert 'system_metrics' in data
+        assert 'total_translations' in data['translation_metrics']
+        assert 'completed_translations' in data['translation_metrics']
+        assert 'failed_translations' in data['translation_metrics']
+        assert 'success_rate' in data['translation_metrics']
 
 
 class TestCacheEndpoints:
@@ -155,6 +196,23 @@ class TestCacheEndpoints:
     def test_cache_clear(self, client):
         response = client.post('/api/cache/clear')
         assert response.status_code == 200
+
+
+class TestExportEndpoints:
+    """Test export endpoints."""
+
+    def test_export_epub_requires_text(self, client):
+        response = client.post('/api/export/epub', json={})
+        assert response.status_code == 400
+
+    def test_export_epub_returns_file(self, client):
+        response = client.post('/api/export/epub', json={
+            'text': 'Paragraph one.\n\nParagraph two.',
+            'title': 'Sample Book',
+            'author': 'Author Name'
+        })
+        assert response.status_code == 200
+        assert response.content_type == 'application/epub+zip'
 
 
 class TestLanguagesEndpoint:

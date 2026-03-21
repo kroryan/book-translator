@@ -99,9 +99,11 @@ class TranslationRepository:
                         translated_text = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
+                      AND status != ?
                 """, (
                     progress, stage, TranslationStatus.PROCESSING.value,
-                    machine_translation, translated_text, translation_id
+                    machine_translation, translated_text, translation_id,
+                    TranslationStatus.CANCELLED.value
                 ))
             elif machine_translation:
                 conn.execute("""
@@ -112,9 +114,11 @@ class TranslationRepository:
                         machine_translation = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
+                      AND status != ?
                 """, (
                     progress, stage, TranslationStatus.PROCESSING.value,
-                    machine_translation, translation_id
+                    machine_translation, translation_id,
+                    TranslationStatus.CANCELLED.value
                 ))
             else:
                 conn.execute("""
@@ -124,7 +128,11 @@ class TranslationRepository:
                         status = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (progress, stage, TranslationStatus.PROCESSING.value, translation_id))
+                      AND status != ?
+                """, (
+                    progress, stage, TranslationStatus.PROCESSING.value,
+                    translation_id, TranslationStatus.CANCELLED.value
+                ))
     
     def mark_completed(
         self,
@@ -148,10 +156,12 @@ class TranslationRepository:
                     completed_at = CURRENT_TIMESTAMP,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
+                  AND status != ?
             """, (
                 TranslationStatus.COMPLETED.value,
                 translated_text, translated_filename,
-                processing_time, chunk_count, translation_id
+                processing_time, chunk_count, translation_id,
+                TranslationStatus.CANCELLED.value
             ))
             
             self.logger.info(f"Translation {translation_id} completed")
@@ -169,7 +179,11 @@ class TranslationRepository:
                     error_message = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (TranslationStatus.FAILED.value, error_message, translation_id))
+                  AND status != ?
+            """, (
+                TranslationStatus.FAILED.value, error_message,
+                translation_id, TranslationStatus.CANCELLED.value
+            ))
             
             self.logger.error(f"Translation {translation_id} failed: {error_message}")
     

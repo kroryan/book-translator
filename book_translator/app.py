@@ -118,14 +118,14 @@ def run_server():
 ╠══════════════════════════════════════════════════════════════╣
 ║  Server: http://{config.server.host}:{config.server.port:<5}                              ║
 ║  Model:  {config.ollama.default_model:<50} ║
-║  Debug:  {'Enabled' if config.logging.verbose_debug else 'Disabled':<50} ║
+║  Debug:  {'Enabled' if config.server.debug else 'Disabled':<50} ║
 ╚══════════════════════════════════════════════════════════════╝
     """)
     
     app.run(
         host=config.server.host,
         port=config.server.port,
-        debug=config.logging.verbose_debug,
+        debug=config.server.debug,
         threaded=True
     )
 
