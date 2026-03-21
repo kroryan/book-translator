@@ -331,14 +331,17 @@ def create_translation_blueprint() -> Blueprint:
                 current_progress = translation["progress"]
 
                 if current_progress != last_progress:
-                    yield f"data: {json.dumps({
-                        'id': translation['id'],
-                        'status': translation['status'],
-                        'progress': translation['progress'],
-                        'stage': translation['stage'],
-                        'machine_translation': translation.get('machine_translation', ''),
-                        'translated_text': translation.get('translated_text', '')
-                    })}\n\n"
+                    payload = {
+                        "id": translation["id"],
+                        "status": translation["status"],
+                        "progress": translation["progress"],
+                        "stage": translation["stage"],
+                        "machine_translation": translation.get(
+                            "machine_translation", ""
+                        ),
+                        "translated_text": translation.get("translated_text", ""),
+                    }
+                    yield f"data: {json.dumps(payload)}\n\n"
                     last_progress = current_progress
 
                 if translation["status"] in ["completed", "failed", "cancelled"]:
