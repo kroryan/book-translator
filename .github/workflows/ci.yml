@@ -137,7 +137,7 @@ jobs:
       
       - name: Test executable exists
         run: |
-          if (Test-Path "dist/BookTranslator.exe") {
+          if (Test-Path "dist/BookTranslator/BookTranslator.exe") {
             Write-Host "✅ Executable built successfully"
           } else {
             Write-Error "❌ Executable not found"
@@ -149,7 +149,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: BookTranslator-Windows
-          path: dist/BookTranslator.exe
+          path: dist/BookTranslator/BookTranslator.exe
           retention-days: 30
 
   build-docker:
