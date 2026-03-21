@@ -1,6 +1,24 @@
-# Book Translator
+<p align="center">
+  <img src="app_icon.ico" alt="Book Translator logo" width="120">
+</p>
 
-Translate long-form text files through a local Ollama-powered desktop and web app.
+<h1 align="center">Book Translator</h1>
+
+<p align="center">
+  Translate long-form text files through a local Ollama-powered desktop and web app.
+</p>
+
+<p align="center">
+  <a href="https://github.com/KazKozDev/book-translator/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/KazKozDev/book-translator/ci.yml?branch=main&label=CI" alt="CI status">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/KazKozDev/book-translator" alt="MIT license">
+  </a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/Ollama-local%20models-111111" alt="Ollama local models">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Web-2ea44f" alt="Platforms">
+</p>
 
 Book Translator provides a two-stage workflow for translating books and large documents: first it generates a draft translation, then it runs a second pass to improve fluency, consistency, and style. The project targets users who want a local-first interface, progress tracking, saved history, and downloadable output without building a custom prompt pipeline around Ollama.
 
