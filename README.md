@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="Book Translator logo">
+  <img src="docs/assets/logo.png" alt="Book Translator logo">
 </p>
 
 <h1 align="center">Book Translator</h1>
@@ -32,7 +32,7 @@ Book Translator provides a two-stage workflow for translating books and large do
 
 ## Demo
 
-![Book Translator screenshot](demo.jpg)
+![Book Translator screenshot](docs/assets/demo.jpg)
 
 ## Overview
 
