@@ -1,5 +1,7 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kroryan/book-translator)
 
+
+
 <div align="center">
   <img src="https://github.com/user-attachments/assets/f62278a1-ec33-4096-aa13-a855dd7bda4f" alt="Logo">
   <br> 
@@ -72,13 +74,13 @@ This will automatically:
 
 **Option 3: Manual start**
 ```bash
-python translator.py
+python run.py
 # Then open http://localhost:5001 in your browser
 ```
 
 ## Configuration
 
-Default settings in `translator.py`:
+Default settings in `run.py`:
 - Port: 5001
 - Chunk size: 1000 characters
 - Temperature varies by genre (0.3-0.8)
