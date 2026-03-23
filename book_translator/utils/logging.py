@@ -129,7 +129,7 @@ def get_logger() -> AppLogger:
 def debug_print(message: str, level: str = 'INFO', source: str = 'DEBUG'):
     """
     Print to console and add to log buffer for frontend visibility.
-    
+
     Args:
         message: The message to log
         level: Log level (DEBUG, INFO, WARNING, ERROR)
@@ -138,7 +138,9 @@ def debug_print(message: str, level: str = 'INFO', source: str = 'DEBUG'):
     # Strip ANSI codes for the buffer
     clean_message = re.sub(r'\033\[[0-9;]*m', '', message)
     log_buffer.add(level, source, clean_message)
-    
+
     # Print to console with colors if verbose
     if config.logging.verbose_debug:
-        print(message)
+        # Remove non-ASCII characters to avoid encoding errors on Windows cp1252
+        safe_message = re.sub(r'[^\x00-\x7F]', '', message)
+        print(safe_message)

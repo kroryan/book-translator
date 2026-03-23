@@ -21,23 +21,30 @@ class TranslationCache:
     
     def _init_db(self):
         """Initialize the cache database."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS translation_cache (
-                    hash_key TEXT PRIMARY KEY,
-                    source_lang TEXT,
-                    target_lang TEXT,
-                    original_text TEXT,
-                    translated_text TEXT,
-                    machine_translation TEXT,
-                    model TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            # Create indexes for faster lookups
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_cache_hash ON translation_cache(hash_key)')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_cache_lookup ON translation_cache(hash_key, last_used)')
+        # Use a dedicated SQLite connection per thread and disable the
+        # default single‑thread restriction so that the cache can be accessed
+        # safely from the translation executor pool.
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        try:
+            with conn:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS translation_cache (
+                        hash_key TEXT PRIMARY KEY,
+                        source_lang TEXT,
+                        target_lang TEXT,
+                        original_text TEXT,
+                        translated_text TEXT,
+                        machine_translation TEXT,
+                        model TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                # Create indexes for faster lookups
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_cache_hash ON translation_cache(hash_key)')
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_cache_lookup ON translation_cache(hash_key, last_used)')
+        finally:
+            conn.close()
     
     def _generate_hash(
         self, 
@@ -84,13 +91,13 @@ class TranslationCache:
         debug_print(f"  Text preview: {text[:60].replace(chr(10), ' ')}...", 'DEBUG', 'CACHE')
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
                 cur = conn.execute('''
                     SELECT translated_text, machine_translation
                     FROM translation_cache
                     WHERE hash_key = ?
                 ''', (hash_key,))
-                
+
                 result = cur.fetchone()
                 if result:
                     debug_print(f"  [HIT] Found cached translation ({len(result[0])} chars)", 'INFO', 'CACHE')
@@ -108,8 +115,8 @@ class TranslationCache:
                         'machine_translation': result[1]
                     }
 
-            debug_print(f"  [MISS] No cached translation found", 'INFO', 'CACHE')
-            return None
+                debug_print(f"  [MISS] No cached translation found", 'INFO', 'CACHE')
+                return None
             
         except sqlite3.Error as e:
             self.logger.error(f"Cache lookup error: {e}")
@@ -152,7 +159,7 @@ class TranslationCache:
         debug_print(f"  Preview: {translated_text[:80].replace(chr(10), ' ')}...", 'DEBUG', 'CACHE')
 
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
                 conn.execute('''
                     INSERT OR REPLACE INTO translation_cache
                     (hash_key, source_lang, target_lang, original_text, translated_text,
@@ -160,7 +167,7 @@ class TranslationCache:
                     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ''', (hash_key, source_lang, target_lang, text, translated_text,
                       machine_translation, model))
-            debug_print(f"  [STORED] Successfully cached translation", 'DEBUG', 'CACHE')
+                debug_print(f"  [STORED] Successfully cached translation", 'DEBUG', 'CACHE')
         except sqlite3.Error as e:
             debug_print(f"  [ERROR] Cache store failed: {e}", 'ERROR', 'CACHE')
             self.logger.error(f"Cache store error: {e}")
@@ -178,7 +185,7 @@ class TranslationCache:
             days = 30
 
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
                 # Use parameterized query with julianday for safe date arithmetic
                 cursor = conn.execute(
                     """DELETE FROM translation_cache
@@ -194,7 +201,7 @@ class TranslationCache:
     def clear(self):
         """Clear all cached translations."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
                 conn.execute("DELETE FROM translation_cache")
                 self.logger.info("Translation cache cleared")
         except sqlite3.Error as e:
@@ -203,7 +210,7 @@ class TranslationCache:
     def get_stats(self) -> Dict[str, int]:
         """Get cache statistics."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
                 cur = conn.execute("SELECT COUNT(*) FROM translation_cache")
                 total = cur.fetchone()[0]
                 
