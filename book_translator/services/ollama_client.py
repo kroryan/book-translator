@@ -32,7 +32,14 @@ class OllamaResponse:
 # boolean is silently ignored (per Ollama's docs), while Qwen3/DeepSeek
 # reasoning models take a plain boolean.
 _THINK_LEVEL_MODELS = ("gpt-oss",)
-_THINK_BOOL_MODELS = ("qwen3", "qwen-3", "deepseek-r1", "deepseek-v3.1", "deepseek-v3", "magistral")
+_THINK_BOOL_MODELS = (
+    "qwen3",
+    "qwen-3",
+    "deepseek-r1",
+    "deepseek-v3.1",
+    "deepseek-v3",
+    "magistral",
+)
 
 
 def _resolve_think_option(model: str, override: str = ""):
