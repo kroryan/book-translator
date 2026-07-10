@@ -8,7 +8,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 
 def _get_bool_env(key: str, default: bool) -> bool:
@@ -34,6 +34,23 @@ def _get_float_env(key: str, default: float) -> float:
     try:
         return float(os.environ.get(key, default))
     except (ValueError, TypeError):
+        return default
+
+
+def _get_optional_int_env(key: str, default: Optional[int]) -> Optional[int]:
+    """
+    Get an optional integer from an environment variable. Unset falls back
+    to `default`; "0"/"none"/"" explicitly means "no limit" (None).
+    """
+    val = os.environ.get(key)
+    if val is None:
+        return default
+    val = val.strip().lower()
+    if val in ("", "0", "none", "null"):
+        return None
+    try:
+        return int(val)
+    except ValueError:
         return default
 
 
@@ -108,8 +125,14 @@ class OllamaConfig:
     connect_timeout: int = field(
         default_factory=lambda: _get_int_env("OLLAMA_CONNECT_TIMEOUT", 30)
     )
-    read_timeout: int = field(
-        default_factory=lambda: _get_int_env("OLLAMA_READ_TIMEOUT", 300)
+    # How long to wait for Ollama to finish generating a response. Once the
+    # request has been sent and Ollama accepted it, there is no point
+    # cutting it off - a slow machine or a big/reasoning model can
+    # legitimately take many minutes, and Ollama WILL eventually respond.
+    # Defaults to no limit (waits indefinitely); set OLLAMA_READ_TIMEOUT to
+    # a number of seconds if you want a hard cap instead.
+    read_timeout: Optional[int] = field(
+        default_factory=lambda: _get_optional_int_env("OLLAMA_READ_TIMEOUT", None)
     )
     health_check_timeout: int = field(
         default_factory=lambda: _get_int_env("OLLAMA_HEALTH_TIMEOUT", 5)
