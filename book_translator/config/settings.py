@@ -121,6 +121,20 @@ class OllamaConfig:
     )
     top_p: float = field(default_factory=lambda: _get_float_env("OLLAMA_TOP_P", 0.9))
 
+    # Context window (tokens). Ollama defaults to a mere 4096 tokens for most
+    # models, which reasoning models like gpt-oss can exhaust on hidden
+    # "thinking" tokens before ever writing the actual translation, coming
+    # back with a success response but an empty "response" field. Set a much
+    # larger window so the prompt + reasoning + output all fit.
+    num_ctx: int = field(default_factory=lambda: _get_int_env("OLLAMA_NUM_CTX", 8192))
+
+    # Reasoning effort override for thinking-capable models ("", "false",
+    # "true", "low", "medium", "high"). Empty string = auto-detect from the
+    # model name (see ollama_client._resolve_think_option).
+    think: str = field(
+        default_factory=lambda: os.environ.get("OLLAMA_THINK", "").strip().lower()
+    )
+
     @property
     def api_url(self) -> str:
         return f"{self.base_url}/api/generate"
@@ -143,12 +157,13 @@ class TranslationConfig:
     # Retry settings
     max_retries: int = field(default_factory=lambda: _get_int_env("MAX_RETRIES", 3))
     retry_delay: float = field(
-        default_factory=lambda: _get_float_env("RETRY_DELAY", 1.0)
+        default_factory=lambda: _get_float_env("RETRY_DELAY", 2.0)
     )
 
-    # Sleep between chunks (0 to disable)
+    # Sleep between chunks (0 to disable). Gives Ollama a breather between
+    # requests instead of firing the next one immediately.
     chunk_delay: float = field(
-        default_factory=lambda: _get_float_env("CHUNK_DELAY", 0.3)
+        default_factory=lambda: _get_float_env("CHUNK_DELAY", 1.5)
     )
 
     # Parallel processing
