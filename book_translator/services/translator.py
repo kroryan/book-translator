@@ -3,6 +3,7 @@ Book Translator Service
 =======================
 Main translation service with two-stage translation approach.
 """
+import difflib
 import hashlib
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -40,6 +41,26 @@ def _normalize_custom_instructions(custom_instructions: str) -> str:
     if not custom_instructions:
         return ""
     return custom_instructions.strip()
+
+
+def _is_echo(original: str, candidate: str) -> bool:
+    """
+    True if `candidate` is basically the source text handed back unchanged
+    (some models just echo the input instead of translating it, regardless
+    of prompt or context size). This is a different failure mode than "the
+    model produced a bad/short translation" - retrying or splitting the
+    chunk into smaller pieces will not fix it, since the model isn't
+    attempting the task at all.
+    """
+    o = " ".join(original.split())
+    c = " ".join(candidate.split())
+    if not o or not c:
+        return False
+    if o == c:
+        return True
+    if abs(len(o) - len(c)) / max(len(o), 1) > 0.15:
+        return False
+    return difflib.SequenceMatcher(None, o, c).ratio() > 0.92
 
 
 class BookTranslator:
@@ -178,6 +199,8 @@ OUTPUT (final translation only):"""
         debug_print(f"[PROMPT S1] Input text ({len(chunk)} chars): {chunk[:150]}...", 'DEBUG', 'LLM')
 
         last_cleaned = None
+        consecutive_echoes = 0
+        echo_detected = False
         for attempt in range(config.translation.max_retries):
             debug_print(f"[LLM] Sending request to {self.model_name} (attempt {attempt + 1})", 'INFO', 'LLM')
             start_time = time.time()
@@ -204,7 +227,30 @@ OUTPUT (final translation only):"""
                 ):
                     debug_print(f"[VALIDATION] PASSED - Translation accepted", 'INFO', 'LLM')
                     return cleaned, True
+
+                if _is_echo(chunk, cleaned):
+                    consecutive_echoes += 1
+                    debug_print(
+                        f"[VALIDATION] FAILED - model returned the source text almost "
+                        f"unchanged (attempt {attempt + 1}, {consecutive_echoes} in a row)",
+                        'WARNING', 'LLM'
+                    )
+                    self.logger.warning(f"Model echoed source text, attempt {attempt + 1}")
+                    if consecutive_echoes >= 2:
+                        # The model isn't attempting the translation at all -
+                        # this is not a length/context problem, so more
+                        # retries or splitting the chunk won't help either.
+                        # Stop wasting time and fall through to the fallback.
+                        debug_print(
+                            f"[VALIDATION] Model is echoing the source instead of translating - "
+                            f"stopping retries for this chunk (splitting won't fix this)",
+                            'ERROR', 'LLM'
+                        )
+                        self.logger.error("Model repeatedly echoed source text; aborting retries/split")
+                        echo_detected = True
+                        break
                 else:
+                    consecutive_echoes = 0
                     debug_print(f"[VALIDATION] FAILED - Translation rejected (attempt {attempt + 1})", 'WARNING', 'LLM')
                     self.logger.warning(f"Translation validation failed, attempt {attempt + 1}")
             else:
@@ -218,11 +264,12 @@ OUTPUT (final translation only):"""
         # than give up on the whole chunk, split it into smaller pieces
         # (which are far less likely to hit context/reasoning limits) and
         # retry each independently, so one bad passage never sinks the
-        # rest of the chapter.
+        # rest of the chapter. Skipped when the model is just echoing the
+        # source, since a smaller prompt won't change that behaviour.
         MAX_SPLIT_DEPTH = 2
         paragraphs = [p for p in chunk.split("\n\n") if p.strip()]
 
-        if _split_depth < MAX_SPLIT_DEPTH and len(paragraphs) > 1:
+        if not echo_detected and _split_depth < MAX_SPLIT_DEPTH and len(paragraphs) > 1:
             mid = len(paragraphs) // 2
             first_half = "\n\n".join(paragraphs[:mid])
             second_half = "\n\n".join(paragraphs[mid:])
@@ -251,6 +298,15 @@ OUTPUT (final translation only):"""
         # a substantial translation, otherwise fall back to the original
         # source text. Either way, the paragraph's full content survives -
         # never a truncated "[TRANSLATION_FAILED]" stub.
+        if echo_detected:
+            debug_print(
+                f"[TRANSLATION] Model would not translate this segment (echoed the source); "
+                f"keeping original source text",
+                'ERROR', 'LLM'
+            )
+            self.logger.error("Model echoed source text; keeping original text for this segment")
+            return chunk, False
+
         if last_cleaned and len(last_cleaned) >= max(20, len(chunk) * 0.3):
             debug_print(
                 f"[TRANSLATION] FAILED validation after {config.translation.max_retries} attempts; "
