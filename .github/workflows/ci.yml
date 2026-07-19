@@ -308,9 +308,7 @@ jobs:
           
           gh release create continuous \
             --title "Continuous Build" \
-            --notes "Triggered on ${DATE_STR} UTC by commit ${SHORT_SHA} (@${{ github.actor }})
-
-This is an automated build of the latest source. It may be unstable or even crash, corrupt your save or eat your kitten. Use with caution!" \
+            --notes "$(printf "Triggered on %s UTC by commit %s (@%s)\n\nThis is an automated build of the latest source. It may be unstable or even crash, corrupt your save or eat your kitten. Use with caution!" "${DATE_STR}" "${SHORT_SHA}" "${{ github.actor }}")" \
             --prerelease \
             artifacts/BookTranslator.exe \
             artifacts/BookTranslator-x86_64.AppImage
